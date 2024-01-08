@@ -3,7 +3,6 @@ from typing import Callable, List, NamedTuple, Optional, Tuple
 import torch
 import torch.nn.functional as F
 from torch import Tensor
-import torch_scatter
 
 from torch_geometric.utils import coalesce, scatter, softmax
 

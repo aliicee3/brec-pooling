@@ -101,6 +101,9 @@ def get_dataset(name, device):
     # Do something
     dataset = BRECDataset(name=name)
 
+    # dataset.data.x = torch.ones([dataset.num_nodes, 1])
+
+
     time_end = time.process_time()
     time_cost = round(time_end - time_start, 2)
     logger.info(f"dataset construction time cost: {time_cost}")
@@ -110,10 +113,10 @@ def get_dataset(name, device):
 
 import torch
 from torch.nn import Linear, Parameter, Module
-from torch_geometric.nn import GCNConv, 
+from torch_geometric.nn import GCNConv 
 from torch_geometric.nn.pool import global_add_pool
 from torch_geometric.utils import add_self_loops, degree
-from pooling import EdgePoolingHack
+from pooling.edge_pool_hack import EdgePoolingHack
 
 class GINandPool(torch.nn.Module):
     def __init__(self, in_channels, hidden_dim, out_channels):
@@ -130,19 +133,21 @@ class GINandPool(torch.nn.Module):
         
         self.final = global_add_pool
 
-        self.reset_parameters()
+    #     self.reset_parameters()
 
-    def reset_parameters(self):
-        self.lin.reset_parameters()
-        self.bias.data.zero_()
+    # def reset_parameters(self):
+    #     self.lin.reset_parameters()
+    #     self.bias.data.zero_()
 
-    def forward(self, x, edge_index):
+    def forward(self, data):
+        edge_idx, batch = data.edge_index, data.batch 
+        x = torch.ones([batch.shape[0], 1])
         x = self.mpnn1(x, edge_idx)
         x = self.mpnn2(x, edge_idx)
-        x = self.edge_pool(x, edge_idx)
+        x, edge_idx, batch, _ = self.edgepool(x, edge_idx, batch)
         x = self.mpnn3(x, edge_idx)
         x = self.mpnn4(x, edge_idx)
-        x = self.final(x)
+        x = self.final(x, batch)
 
         return x
 
@@ -152,7 +157,8 @@ class GINandPool(torch.nn.Module):
 def get_model(args, device, dataset):
     time_start = time.process_time()
 
-    in_channels = dataset.x.shape[-1]
+
+    in_channels = 1
     hidden_dim = 64
     out_channels = 64
 
@@ -217,7 +223,7 @@ def evaluation(dataset, model, path, device, args):
 
         for id in tqdm(range(part_range[0], part_range[1])):
             logger.info(f"ID: {id}")
-            model = get_model(args, device)
+            model = get_model(args, device, dataset)
             optimizer = torch.optim.Adam(
                 model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
             )

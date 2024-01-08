@@ -16,7 +16,7 @@ conda activate brec-env
 conda activate brec-env
 ```
 ```shell
-conda env update --file environment.yml --prune
+conda env update --file brec-env.yml --prune
 ```
 
 ## How to add new dependencies?
@@ -30,7 +30,7 @@ or
 pip install <packagename>
 ```
 
-After intalling new dependencies, the environment.yml has to be updated. It can be updated by using:
+After intalling new dependencies, the brec-env.yml has to be updated. It can be updated by using:
 
 ```shell
 conda env export > temp_environment.yml
@@ -51,7 +51,7 @@ To work and use this project, one needs to consider the following steps.
 Update the `brec-env.yml` file by adding your additional packages.
 
 ## Problems to work with the environment.yml? 
-In case you have problems working with the environment.yml file and need to create the environment yourself follow stepts 2 and 3 and install missing packages manuelly. However, assume everything works fine, then install environment as descibred above.
+In case you have problems working with the brec-env.yml file and need to create the environment yourself follow stepts 2 and 3 and install missing packages manuelly. However, assume everything works fine, then install environment as descibred above.
 
 2. Install conda for Python 3.8.13 according to the 
    [installation guide](https://conda.io/projects/conda/en/latest/user-guide/install/index.html).

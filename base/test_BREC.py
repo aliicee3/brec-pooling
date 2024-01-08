@@ -108,13 +108,56 @@ def get_dataset(name, device):
     return dataset
 
 
+import torch
+from torch.nn import Linear, Parameter, Module
+from torch_geometric.nn import GCNConv, 
+from torch_geometric.nn.pool import global_add_pool
+from torch_geometric.utils import add_self_loops, degree
+from pooling import EdgePoolingHack
+
+class GINandPool(torch.nn.Module):
+    def __init__(self, in_channels, hidden_dim, out_channels):
+        super().__init__() 
+        self.mpnn1 = GCNConv(in_channels, hidden_dim)
+        self.mpnn2 = GCNConv(hidden_dim, hidden_dim)
+
+        self.mlp1 = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(), torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())
+        self.mlp2 = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(), torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())
+        self.edgepool = EdgePoolingHack(in_channels=hidden_dim, mlp1=self.mlp1, mlp2=self.mlp2)
+        
+        self.mpnn3 = GCNConv(hidden_dim, hidden_dim)
+        self.mpnn4 = GCNConv(hidden_dim, out_channels)
+        
+        self.final = global_add_pool
+
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        self.lin.reset_parameters()
+        self.bias.data.zero_()
+
+    def forward(self, x, edge_index):
+        x = self.mpnn1(x, edge_idx)
+        x = self.mpnn2(x, edge_idx)
+        x = self.edge_pool(x, edge_idx)
+        x = self.mpnn3(x, edge_idx)
+        x = self.mpnn4(x, edge_idx)
+        x = self.final(x)
+
+        return x
+
+
 # Stage 3: model construction
 # Here is for model construction.
 def get_model(args, device):
     time_start = time.process_time()
 
+    in_channels = 1
+    hidden_dim = 64
+    out_channels = 64
+
     # Do something
-    model = None
+    model = GINandPool(in_channels=in_channels, hidden_dim=hidden_dim, out_channels=out_channels)
 
     time_end = time.process_time()
     time_cost = round(time_end - time_start, 2)

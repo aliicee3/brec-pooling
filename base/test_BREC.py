@@ -149,10 +149,10 @@ class GINandPool(torch.nn.Module):
 
 # Stage 3: model construction
 # Here is for model construction.
-def get_model(args, device):
+def get_model(args, device, dataset):
     time_start = time.process_time()
 
-    in_channels = 1
+    in_channels = dataset.x.shape[-1]
     hidden_dim = 64
     out_channels = 64
 
@@ -326,7 +326,7 @@ def main():
 
     pre_calculation()
     dataset = get_dataset(name=DATASET_NAME, device=device)
-    model = get_model(args, device)
+    model = get_model(args, device, dataset)
     evaluation(dataset, model, OUT_PATH, device, args)
 
 

@@ -243,7 +243,7 @@ def evaluation(dataset, model, path, device, args):
             logger.info(f"ID: {id}")
             model = get_model(args, device, dataset)
             optimizer = torch.optim.Adam(
-                model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
+                model.parameters(recurse=True), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
             )
             scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer)
             dataset_traintest = dataset[
@@ -337,8 +337,8 @@ def main():
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
 
     OUT_PATH = f"result_BREC_{args.POOLING}"
-    NAME = "Model_Name"
-    DATASET_NAME = "Dataset_Name"
+    NAME = "GCN_with_EdgePoolHack"
+    DATASET_NAME = "BREC_v3"
     path = os.path.join(OUT_PATH, NAME)
     os.makedirs(path, exist_ok=True)
 

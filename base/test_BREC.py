@@ -62,6 +62,7 @@ parser.add_argument("--THRESHOLD", type=float, default=THRESHOLD)
 parser.add_argument("--MARGIN", type=float, default=MARGIN)
 parser.add_argument("--LOSS_THRESHOLD", type=float, default=LOSS_THRESHOLD)
 parser.add_argument("--device", type=int, default=0)
+parser.add_argument("--POOLING", type=str, default="edge_pool")
 
 # General settings.
 args = parser.parse_args()
@@ -76,6 +77,7 @@ SEED = args.SEED
 THRESHOLD = args.THRESHOLD
 MARGIN = args.MARGIN
 LOSS_THRESHOLD = args.LOSS_THRESHOLD
+POOLING = args.POOLING
 torch_geometric.seed_everything(SEED)
 torch.backends.cudnn.deterministic = True
 # torch.use_deterministic_algorithms(True)
@@ -113,25 +115,36 @@ def get_dataset(name, device):
 
 import torch
 from torch.nn import Linear, Parameter, Module
-from torch_geometric.nn import GCNConv 
-from torch_geometric.nn.pool import global_add_pool
+from torch_geometric.nn import GCNConv, GINConv 
+from torch_geometric.nn.pool import global_add_pool, TopKPooling
 from torch_geometric.utils import add_self_loops, degree
 from pooling.edge_pool_hack import EdgePoolingHack
 
 class GINandPool(torch.nn.Module):
-    def __init__(self, in_channels, hidden_dim, out_channels):
+    def __init__(self, in_channels, hidden_dim, out_channels, pool='topk'):
         super().__init__() 
-        self.mpnn1 = GCNConv(in_channels, hidden_dim)
-        self.mpnn2 = GCNConv(hidden_dim, hidden_dim)
-
-        self.mlp1 = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(), torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())
+        self.mlp1 = torch.nn.Sequential(torch.nn.Linear(in_channels, hidden_dim), torch.nn.ReLU(), torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())
         self.mlp2 = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(), torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())
-        self.edgepool = EdgePoolingHack(in_channels=hidden_dim, mlp1=self.mlp1, mlp2=self.mlp2)
+        self.mpnn1 = GINConv(self.mlp1)
+        self.mpnn2 = GINConv(self.mlp2)
+
+        self.mlp3 = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(), torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())
+        self.mlp4 = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(), torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())        
+        self.mpnn3 = GINConv(self.mlp3)
+        self.mpnn4 = GINConv(self.mlp4)
+
+        self.pool = pool
+        if self.pool == 'edge_pool':
+            self.mlp5 = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(), torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())
+            self.mlp6 = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(), torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())
+            self.pooling = EdgePoolingHack(in_channels=hidden_dim, mlp1=self.mlp5, mlp2=self.mlp6)
+        elif self.pool == 'topk':
+            self.pooling = TopKPooling(in_channels)
+
         
-        self.mpnn3 = GCNConv(hidden_dim, hidden_dim)
-        self.mpnn4 = GCNConv(hidden_dim, out_channels)
+        self.dec = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(), torch.nn.Linear(hidden_dim, out_channels))
         
-        self.final = global_add_pool
+        self.global_pooling = global_add_pool
 
     #     self.reset_parameters()
 
@@ -141,13 +154,18 @@ class GINandPool(torch.nn.Module):
 
     def forward(self, data):
         edge_idx, batch = data.edge_index, data.batch 
-        x = torch.ones([batch.shape[0], 1])
+        x = torch.ones([batch.shape[0], 1],device=edge_idx.device)
         x = self.mpnn1(x, edge_idx)
         x = self.mpnn2(x, edge_idx)
-        x, edge_idx, batch, _ = self.edgepool(x, edge_idx, batch)
+        if self.pool == 'edge_pool':
+            x, edge_idx, batch, _ = self.pooling(x, edge_idx, batch)
+        elif self.pool == 'topk':
+            x, edge_idx, _, batch, _, _ = self.pooling(x, edge_idx, batch=batch)
         x = self.mpnn3(x, edge_idx)
         x = self.mpnn4(x, edge_idx)
-        x = self.final(x, batch)
+        
+        x = self.global_pooling(x, batch)
+        x = self.dec(x)
 
         return x
 
@@ -159,11 +177,11 @@ def get_model(args, device, dataset):
 
 
     in_channels = 1
-    hidden_dim = 64
-    out_channels = 64
+    hidden_dim = 16
+    out_channels = OUTPUT_DIM
 
     # Do something
-    model = GINandPool(in_channels=in_channels, hidden_dim=hidden_dim, out_channels=out_channels)
+    model = GINandPool(in_channels=in_channels, hidden_dim=hidden_dim, out_channels=out_channels, pool=args.POOLING).to(device)
 
     time_end = time.process_time()
     time_cost = round(time_end - time_start, 2)
@@ -318,7 +336,7 @@ def evaluation(dataset, model, path, device, args):
 def main():
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
 
-    OUT_PATH = "result_BREC"
+    OUT_PATH = f"result_BREC_{args.POOLING}"
     NAME = "Model_Name"
     DATASET_NAME = "Dataset_Name"
     path = os.path.join(OUT_PATH, NAME)

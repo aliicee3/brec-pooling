@@ -243,7 +243,7 @@ def evaluation(dataset, model, path, device, args):
             logger.info(f"ID: {id}")
             model = get_model(args, device, dataset)
             optimizer = torch.optim.Adam(
-                model.parameters(recurse=True), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
+                model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
             )
             scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer)
             dataset_traintest = dataset[

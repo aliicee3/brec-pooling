@@ -65,6 +65,7 @@ class EdgePoolingHack(torch.nn.Module):
         add_to_edge_score: float = 0.5,
         mlp1 = None, 
         mlp2 = None,
+        deterministic=True
     ):
         super().__init__()
         self.in_channels = in_channels
@@ -80,6 +81,7 @@ class EdgePoolingHack(torch.nn.Module):
 
         self.mlp1 = mlp1
         self.mlp2 = mlp2
+        self.deterministic = deterministic
 
     def reset_parameters(self):
         r"""Resets all learnable parameters of the module."""
@@ -159,12 +161,12 @@ class EdgePoolingHack(torch.nn.Module):
     ) -> Tuple[Tensor, Tensor, Tensor, UnpoolInfo]:
 
         cluster = torch.empty_like(batch)
-        perm: List[int] = torch.argsort(edge_score, descending=True).tolist()
-
+        perm: List[int] = torch.argsort(edge_score, descending=True).tolist()            
         # Iterate through all edges, selecting it if it is not incident to
         # another already chosen edge.
         mask = torch.ones(x.size(0), dtype=torch.bool)
-
+        new_batch = []
+        
         i = 0
         new_edge_indices: List[int] = []
         edge_index_cpu = edge_index.cpu()
@@ -185,6 +187,28 @@ class EdgePoolingHack(torch.nn.Module):
             if source != target:
                 cluster[target] = i
                 mask[target] = False
+                
+            score = edge_score[edge_idx]
+            new_batch.append(batch[source])
+            if self.deterministic:
+                edges_with_same_score = edge_index[:,torch.logical_and(edge_score == score,batch[source] == batch[edge_index[0]])]
+                if edges_with_same_score.size(1) > 1:
+                    cluster_nodes = {source,target}
+                    added = True
+                    edge_mask = torch.ones(edges_with_same_score.size(1), dtype=torch.bool)
+                    #edge_mask[edge_idx] = False
+                    while added:
+                        added = False
+                        for other_edge_id in range(edges_with_same_score.size(1)):
+                            other_edge = edges_with_same_score[:,other_edge_id]
+                            if (other_edge[0] in cluster_nodes != other_edge[1] in cluster_nodes) and edge_mask[other_edge_id]:
+                                cluster[other_edge[0]] = i
+                                cluster[other_edge[1]] = i
+                                mask[other_edge[0]] = False
+                                mask[other_edge[1]] = False
+                                cluster_nodes.update({other_edge[0],other_edge[1]})
+                                added = True
+                                edge_mask[other_edge_id] = False
 
             i += 1
 
@@ -192,6 +216,7 @@ class EdgePoolingHack(torch.nn.Module):
         j = int(mask.sum())
         cluster[mask] = torch.arange(i, i + j, device=x.device)
         i += j
+        new_batch = torch.cat([torch.LongTensor(new_batch).to(batch.device),batch[mask]])
 
 
 
@@ -208,13 +233,13 @@ class EdgePoolingHack(torch.nn.Module):
         new_x = new_x * new_edge_score.view(-1, 1)
 
         new_edge_index = coalesce(cluster[edge_index], num_nodes=new_x.size(0))
-        new_batch = x.new_empty(new_x.size(0), dtype=torch.long)
-        new_batch = new_batch.scatter_(0, cluster, batch)
+        #new_batch = x.new_empty(new_x.size(0), dtype=torch.long)
+        #new_batch = new_batch.scatter_(0, cluster, batch)
 
-        unpool_info = UnpoolInfo(edge_index=edge_index, cluster=cluster,
-                                 batch=batch, new_edge_score=new_edge_score)
+        #unpool_info = UnpoolInfo(edge_index=edge_index, cluster=cluster,
+        #                         batch=batch, new_edge_score=new_edge_score)
 
-        return new_x, new_edge_index, new_batch, unpool_info 
+        return new_x, new_edge_index, new_batch, None#unpool_info 
 
 
     def unpool(

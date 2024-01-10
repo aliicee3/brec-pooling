@@ -63,6 +63,7 @@ parser.add_argument("--MARGIN", type=float, default=MARGIN)
 parser.add_argument("--LOSS_THRESHOLD", type=float, default=LOSS_THRESHOLD)
 parser.add_argument("--device", type=int, default=0)
 parser.add_argument("--POOLING", type=str, default="edge_pool", choices=GINandPool.POOLING_OPTIONS)
+parser.add_argument("--HIDDEN_DIM", type=int, default=16)
 
 # General settings.
 args = parser.parse_args()
@@ -116,7 +117,7 @@ def get_model(args, device, dataset):
     time_start = time.process_time()
 
     in_channels = 1
-    hidden_dim = 16
+    hidden_dim = arg.HIDDEN_DIM
     out_channels = OUTPUT_DIM
 
     # Do something

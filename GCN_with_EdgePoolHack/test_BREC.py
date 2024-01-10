@@ -117,7 +117,7 @@ def get_model(args, device, dataset):
     time_start = time.process_time()
 
     in_channels = 1
-    hidden_dim = arg.HIDDEN_DIM
+    hidden_dim = args.HIDDEN_DIM
     out_channels = OUTPUT_DIM
 
     # Do something

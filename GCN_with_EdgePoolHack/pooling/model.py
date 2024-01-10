@@ -41,7 +41,7 @@ class GINandPool(torch.nn.Module):
         x = torch.ones([batch.shape[0], 1],device=edge_idx.device)
         x = self.mpnn1(x, edge_idx)
         x = self.mpnn2(x, edge_idx)
-        if self.pool == 'edge_pool':
+        if self.pool in ['edge_pool', 'edge_pool_base']:
             x, edge_idx, batch, _ = self.pooling(x, edge_idx, batch)
         elif self.pool == 'topk':
             x, edge_idx, _, batch, _, _ = self.pooling(x, edge_idx, batch=batch)

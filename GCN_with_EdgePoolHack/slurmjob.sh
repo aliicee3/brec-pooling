@@ -4,6 +4,12 @@
 #SBATCH --gpus=1
 #SBATCH --ntasks=1
 
-module load Python
-python GCN_with_Edge_PoolHack/test_BREC.py --POOLING edge_pool_base 
-python GCN_with_Edge_PoolHack/test_BREC.py --POOLING edge_pool
+source ~/.bashrc
+
+conda deactivate
+conda activate brec-env-server
+
+/usr/bin/time --append --output=timing.info --format='%C\nuser: %U\nsys: %S\nwall: %E\n\n' python ~/brec-pooling/GCN_with_EdgePoolHack/test_BREC.py --POOLING edge_pool_base
+/usr/bin/time --append --output=timing.info --format='%C\nuser: %U\nsys: %S\nwall: %E\n\n' python ~/brec-pooling/GCN_with_EdgePoolHack/test_BREC.py --POOLING edge_pool
+
+conda deactivate

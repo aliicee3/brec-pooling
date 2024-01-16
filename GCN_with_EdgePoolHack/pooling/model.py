@@ -7,47 +7,53 @@ from pooling.edge_pool_hack import EdgePoolingHack
 
 
 class GINandPool(torch.nn.Module):
-
-    POOLING_OPTIONS = ['edge_pool', 'edge_pool_base', 'topk']
     
-    def __init__(self, in_channels, hidden_dim, out_channels, pool='topk'):
-        super().__init__() 
-        self.mlp1 = torch.nn.Sequential(torch.nn.Linear(in_channels, hidden_dim), torch.nn.ReLU(), torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())
-        self.mlp2 = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(), torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())
-        self.mpnn1 = GINConv(self.mlp1)
-        self.mpnn2 = GINConv(self.mlp2)
-
-        self.mlp3 = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(), torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())
-        self.mlp4 = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(), torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())        
-        self.mpnn3 = GINConv(self.mlp3)
-        self.mpnn4 = GINConv(self.mlp4)
-
+    POOLING_OPTIONS = ['edge_pool', 'edge_pool_base', 'topk']
+    def __init__(self, in_channels, hidden_dim, out_channels, pool='topk', num_blocks=3, num_layers=4):
+        super().__init__()
         self.pool = pool
-        if self.pool == 'edge_pool':
-            self.mlp5 = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(), torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())
-            self.mlp6 = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(), torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())
-            self.pooling = EdgePoolingHack(in_channels=hidden_dim, mlp1=self.mlp5, mlp2=self.mlp6)
-        elif self.pool == 'edge_pool_base':
-            self.pooling = EdgePooling(in_channels=hidden_dim)
-        elif self.pool == 'topk':
-            self.pooling = TopKPooling(in_channels) 
-        
-        self.dec = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(), torch.nn.Linear(hidden_dim, out_channels))
+        self.num_blocks = num_blocks
+        self.num_layers = num_layers
+
+        self.enc = torch.nn.Sequential(torch.nn.Linear(in_channels, hidden_dim), torch.nn.ReLU())
+
+        self.layers = torch.nn.ModuleList()
+        self.poolings = torch.nn.ModuleList()
+        for i in range(num_blocks):
+            for j in range(num_layers):
+                mlp = torch.nn.Sequential(
+                    torch.nn.Linear(in_channels if i == 0 and j == -1 else hidden_dim, hidden_dim), torch.nn.ReLU(),
+                    torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())
+                self.layers.append(GINConv(mlp))#GCNConv(hidden_dim, hidden_dim))#
+
+            if i < num_blocks - 1:
+                if self.pool == 'edge_pool':
+                    mlp5 = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(),
+                                               torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())
+                    mlp6 = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(),
+                                               torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())
+                    self.poolings.append(
+                        EdgePoolingHack(in_channels=hidden_dim, mlp1=mlp5, mlp2=mlp6, deterministic=False))
+                elif self.pool == 'topk':
+                    self.poolings.append(TopKPooling(in_channels))
+
+        self.dec = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(),
+                                       torch.nn.Linear(hidden_dim, out_channels))
+
         self.global_pooling = global_add_pool
 
-
     def forward(self, data):
-        edge_idx, batch = data.edge_index, data.batch 
-        x = torch.ones([batch.shape[0], 1],device=edge_idx.device)
-        x = self.mpnn1(x, edge_idx)
-        x = self.mpnn2(x, edge_idx)
-        if self.pool in ['edge_pool', 'edge_pool_base']:
-            x, edge_idx, batch, _ = self.pooling(x, edge_idx, batch)
-        elif self.pool == 'topk':
-            x, edge_idx, _, batch, _, _ = self.pooling(x, edge_idx, batch=batch)
-        x = self.mpnn3(x, edge_idx)
-        x = self.mpnn4(x, edge_idx)
-        
+        edge_idx, batch = data.edge_index, data.batch
+        x = self.enc(pyg.utils.degree(edge_idx[0], batch.shape[0]).unsqueeze(dim=-1))
+        for i in range(self.num_blocks):
+            for j in range(self.num_layers):
+                x = self.layers[i * self.num_layers + j](x, edge_idx)
+            if i < self.num_blocks - 1:
+                if self.pool == 'edge_pool':
+                    x, edge_idx, batch, _ = self.poolings[i](x, edge_idx, batch)
+                elif self.pool == 'topk':
+                    x, edge_idx, _, batch, _, _ = self.poolings[i](x, edge_idx, batch=batch)
+
         x = self.global_pooling(x, batch)
         x = self.dec(x)
 

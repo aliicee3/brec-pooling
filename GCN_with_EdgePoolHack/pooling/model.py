@@ -34,6 +34,8 @@ class GINandPool(torch.nn.Module):
                                                torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())
                     self.poolings.append(
                         EdgePoolingHack(in_channels=hidden_dim, mlp1=mlp5, mlp2=mlp6, deterministic=False))
+                elif self.pool == 'edge_pool_base':
+                    self.pooling = EdgePooling(in_channels=hidden_dim)                
                 elif self.pool == 'topk':
                     self.poolings.append(TopKPooling(in_channels))
 
@@ -49,7 +51,7 @@ class GINandPool(torch.nn.Module):
             for j in range(self.num_layers):
                 x = self.layers[i * self.num_layers + j](x, edge_idx)
             if i < self.num_blocks - 1:
-                if self.pool == 'edge_pool':
+                if self.pool in ['edge_pool', 'edge_pool_base']:
                     x, edge_idx, batch, _ = self.poolings[i](x, edge_idx, batch)
                 elif self.pool == 'topk':
                     x, edge_idx, _, batch, _, _ = self.poolings[i](x, edge_idx, batch=batch)

@@ -53,19 +53,20 @@ class EdgePoolingHack(torch.nn.Module):
         add_to_edge_score (float, optional): A value to be added to each
             computed edge score. Adding this greatly helps with unpooling
             stability. (default: :obj:`0.5`)
-        mlp1 should be an MLP which accepts input of dimension in_channels 
+        mlp1 should be an MLP which accepts input of dimension in_channels
         mlp2 should be an MLP which accepts the output dimension of mlp1 as input dimension.
             The output dimension of mlp2 will be the new node representation dimension.
     """
+
     def __init__(
-        self,
-        in_channels: int,
-        edge_score_method: Optional[Callable] = None,
-        dropout: Optional[float] = 0.0,
-        add_to_edge_score: float = 0.5,
-        mlp1 = None, 
-        mlp2 = None,
-        deterministic=True
+            self,
+            in_channels: int,
+            edge_score_method: Optional[Callable] = None,
+            dropout: Optional[float] = 0.0,
+            add_to_edge_score: float = 0.5,
+            mlp1=None,
+            mlp2=None,
+            deterministic=True
     ):
         super().__init__()
         self.in_channels = in_channels
@@ -74,55 +75,46 @@ class EdgePoolingHack(torch.nn.Module):
         self.compute_edge_score = edge_score_method
         self.add_to_edge_score = add_to_edge_score
         self.dropout = dropout
-
-        self.lin = torch.nn.Linear(2 * in_channels, 1)
-
-        self.reset_parameters()
+        self.lin = torch.nn.Sequential(torch.nn.Linear(2 * in_channels, 2 * in_channels), torch.nn.ReLU(),
+                                       torch.nn.Linear(2 * in_channels, 1))
 
         self.mlp1 = mlp1
         self.mlp2 = mlp2
         self.deterministic = deterministic
 
-    def reset_parameters(self):
-        r"""Resets all learnable parameters of the module."""
-        self.lin.reset_parameters()
-
-
     @staticmethod
     def compute_edge_score_softmax(
-        raw_edge_score: Tensor,
-        edge_index: Tensor,
-        num_nodes: int,
+            raw_edge_score: Tensor,
+            edge_index: Tensor,
+            num_nodes: int,
     ) -> Tensor:
         r"""Normalizes edge scores via softmax application."""
         return softmax(raw_edge_score, edge_index[1], num_nodes=num_nodes)
 
-
     @staticmethod
     def compute_edge_score_tanh(
-        raw_edge_score: Tensor,
-        edge_index: Optional[Tensor] = None,
-        num_nodes: Optional[int] = None,
+            raw_edge_score: Tensor,
+            edge_index: Optional[Tensor] = None,
+            num_nodes: Optional[int] = None,
     ) -> Tensor:
         r"""Normalizes edge scores via hyperbolic tangent application."""
         return torch.tanh(raw_edge_score)
 
-
     @staticmethod
     def compute_edge_score_sigmoid(
-        raw_edge_score: Tensor,
-        edge_index: Optional[Tensor] = None,
-        num_nodes: Optional[int] = None,
+            raw_edge_score: Tensor,
+            edge_index: Optional[Tensor] = None,
+            num_nodes: Optional[int] = None,
     ) -> Tensor:
         r"""Normalizes edge scores via sigmoid application."""
         return torch.sigmoid(raw_edge_score)
 
-
     def forward(
-        self,
-        x: Tensor,
-        edge_index: Tensor,
-        batch: Tensor,
+            self,
+            x: Tensor,
+            edge_index: Tensor,
+            batch: Tensor,
+            scores: Tensor = None,
     ) -> Tuple[Tensor, Tensor, Tensor, UnpoolInfo]:
         r"""Forward pass.
 
@@ -140,133 +132,62 @@ class EdgePoolingHack(torch.nn.Module):
             * **unpool_info** *(UnpoolInfo)* - Information that is
               consumed by :func:`EdgePooling.unpool` for unpooling.
         """
-        e = torch.cat([x[edge_index[0]], x[edge_index[1]]], dim=-1)
-        e = self.lin(e).view(-1)
-        e = F.dropout(e, p=self.dropout, training=self.training)
-        e = self.compute_edge_score(e, edge_index, x.size(0))
-        e = e + self.add_to_edge_score
+        if scores is None:
+            e = torch.cat([x[edge_index[0]], x[edge_index[1]]], dim=-1)
+            e = self.lin(e).view(-1)
+            e = F.dropout(e, p=self.dropout, training=self.training)
+            # e = self.compute_edge_score(e, edge_index, x.size(0))
+            e = e + self.add_to_edge_score
+        else:
+            e = scores
 
         x, edge_index, batch, unpool_info = self._merge_edges(
             x, edge_index, batch, e)
 
         return x, edge_index, batch, unpool_info
 
-
     def _merge_edges(
-        self,
-        x: Tensor,
-        edge_index: Tensor,
-        batch: Tensor,
-        edge_score: Tensor,
+            self,
+            x: Tensor,
+            edge_index: Tensor,
+            batch: Tensor,
+            edge_score: Tensor,
     ) -> Tuple[Tensor, Tensor, Tensor, UnpoolInfo]:
 
         cluster = torch.empty_like(batch)
-        perm: List[int] = torch.argsort(edge_score, descending=True).tolist()            
-        # Iterate through all edges, selecting it if it is not incident to
-        # another already chosen edge.
+        x = self.mlp1(x)
+
         mask = torch.ones(x.size(0), dtype=torch.bool)
         new_batch = []
-        
+        edge_batch = batch[edge_index[0]]
         i = 0
-        new_edge_indices: List[int] = []
-        edge_index_cpu = edge_index.cpu()
-        for edge_idx in perm:
-            source = int(edge_index_cpu[0, edge_idx])
-            if not bool(mask[source]):
-                continue
-
-            target = int(edge_index_cpu[1, edge_idx])
-            if not bool(mask[target]):
-                continue
-
-            new_edge_indices.append(edge_idx)
-
-            cluster[source] = i
-            mask[source] = False
-
-            if source != target:
-                cluster[target] = i
-                mask[target] = False
-                
-            score = edge_score[edge_idx]
-            new_batch.append(batch[source])
-            if self.deterministic:
-                edges_with_same_score = edge_index[:,torch.logical_and(edge_score == score,batch[source] == batch[edge_index[0]])]
-                if edges_with_same_score.size(1) > 1:
-                    cluster_nodes = {source,target}
-                    added = True
-                    edge_mask = torch.ones(edges_with_same_score.size(1), dtype=torch.bool)
-                    #edge_mask[edge_idx] = False
-                    while added:
-                        added = False
-                        for other_edge_id in range(edges_with_same_score.size(1)):
-                            other_edge = edges_with_same_score[:,other_edge_id]
-                            if (other_edge[0] in cluster_nodes != other_edge[1] in cluster_nodes) and edge_mask[other_edge_id]:
-                                cluster[other_edge[0]] = i
-                                cluster[other_edge[1]] = i
-                                mask[other_edge[0]] = False
-                                mask[other_edge[1]] = False
-                                cluster_nodes.update({other_edge[0],other_edge[1]})
-                                added = True
-                                edge_mask[other_edge_id] = False
-
+        for batch_id in range(batch.max() + 1):
+            batch_edges = edge_batch == batch_id
+            scores = edge_score[batch_edges]
+            max_idx = torch.argmax(scores)
+            edge = edge_index[:, batch_edges][:, max_idx]
+            cluster[edge[0]] = i
+            cluster[edge[1]] = i
+            mask[edge[0]] = False
+            mask[edge[1]] = False
+            new_batch.append(batch_id)
             i += 1
 
         # The remaining nodes are simply kept:
         j = int(mask.sum())
         cluster[mask] = torch.arange(i, i + j, device=x.device)
         i += j
-        new_batch = torch.cat([torch.LongTensor(new_batch).to(batch.device),batch[mask]])
-
-
+        new_batch = torch.cat([torch.LongTensor(new_batch).to(batch.device), batch[mask]])
 
         # We compute the new features as an addition of the old ones after transformation and apply another mlp
         # X multiset
         # f(X) = g(\sum_{x\in X} h(x))
-        intermediate_x = self.mlp1(x)
-        new_x = self.mlp2(scatter(intermediate_x, cluster, dim=0, dim_size=i, reduce='sum'))
-        new_edge_score = edge_score[new_edge_indices]
-        if int(mask.sum()) > 0:
-            remaining_score = x.new_ones(
-                (new_x.size(0) - len(new_edge_indices), ))
-            new_edge_score = torch.cat([new_edge_score, remaining_score])
-        new_x = new_x * new_edge_score.view(-1, 1)
+        new_x = scatter(x, cluster, dim=0, dim_size=i, reduce='sum')
+        new_x = self.mlp2(new_x)
 
         new_edge_index = coalesce(cluster[edge_index], num_nodes=new_x.size(0))
-        #new_batch = x.new_empty(new_x.size(0), dtype=torch.long)
-        #new_batch = new_batch.scatter_(0, cluster, batch)
 
-        #unpool_info = UnpoolInfo(edge_index=edge_index, cluster=cluster,
-        #                         batch=batch, new_edge_score=new_edge_score)
-
-        return new_x, new_edge_index, new_batch, None#unpool_info 
-
-
-    def unpool(
-        self,
-        x: Tensor,
-        unpool_info: UnpoolInfo,
-    ) -> Tuple[Tensor, Tensor, Tensor]:
-        r"""Unpools a previous edge pooling step.
-
-        For unpooling, :obj:`x` should be of same shape as those produced by
-        this layer's :func:`forward` function. Then, it will produce an
-        unpooled :obj:`x` in addition to :obj:`edge_index` and :obj:`batch`.
-
-        Args:
-            x (torch.Tensor): The node features.
-            unpool_info (UnpoolInfo): Information that has been produced by
-                :func:`EdgePooling.forward`.
-
-        Return types:
-            * **x** *(torch.Tensor)* - The unpooled node features.
-            * **edge_index** *(torch.Tensor)* - The new edge indices.
-            * **batch** *(torch.Tensor)* - The new batch vector.
-        """
-        new_x = x / unpool_info.new_edge_score.view(-1, 1)
-        new_x = new_x[unpool_info.cluster]
-        return new_x, unpool_info.edge_index, unpool_info.batch
-
+        return new_x, new_edge_index, new_batch, None
 
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}({self.in_channels})'

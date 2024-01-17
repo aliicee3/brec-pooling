@@ -30,7 +30,7 @@ MARGIN = 0.0
 LEARNING_RATE = 1e-4
 THRESHOLD = 72.34
 BATCH_SIZE = 16
-WEIGHT_DECAY = 1e-4
+WEIGHT_DECAY = 0#1e-4
 LOSS_THRESHOLD = 0.2
 SEED = 2023
 
@@ -43,11 +43,11 @@ for k, v in global_var.items():
 # part_dict: {graph generation type, range}
 part_dict = {
     "Basic": (0, 60),
-    "Regular": (60, 160),
+    #"Regular": (60, 160),
     "Extension": (160, 260),
-    "CFI": (260, 360),
-    "4-Vertex_Condition": (360, 380),
-    "Distance_Regular": (380, 400),
+    #"CFI": (260, 360),
+    #"4-Vertex_Condition": (360, 380),
+    #"Distance_Regular": (380, 400),
 }
 parser = argparse.ArgumentParser(description="BREC Test")
 
@@ -63,6 +63,7 @@ parser.add_argument("--MARGIN", type=float, default=MARGIN)
 parser.add_argument("--LOSS_THRESHOLD", type=float, default=LOSS_THRESHOLD)
 parser.add_argument("--device", type=int, default=0)
 parser.add_argument("--POOLING", type=str, default="edge_pool", choices=GINandPool.POOLING_OPTIONS)
+parser.add_argument("--CONV_TYPE", type=str, default="gin")
 parser.add_argument("--HIDDEN_DIM", type=int, default=16)
 
 # General settings.
@@ -121,7 +122,7 @@ def get_model(args, device, dataset):
     out_channels = OUTPUT_DIM
 
     # Do something
-    model = GINandPool(in_channels=in_channels, hidden_dim=hidden_dim, out_channels=out_channels, pool=args.POOLING).to(device)
+    model = GINandPool(in_channels=in_channels, hidden_dim=hidden_dim, out_channels=out_channels, pool=args.POOLING, conv_type=args.CONV_TYPE).to(device)
 
     time_end = time.process_time()
     time_cost = round(time_end - time_start, 2)
@@ -277,7 +278,7 @@ def main():
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
 
     OUT_PATH = f"result_BREC_{args.POOLING}"
-    NAME = "GIN"
+    NAME = args.CONV_TYPE
     DATASET_NAME = "BREC_v3"
     path = os.path.join(OUT_PATH, NAME)
     os.makedirs(path, exist_ok=True)

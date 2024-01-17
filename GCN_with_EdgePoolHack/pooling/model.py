@@ -1,15 +1,15 @@
 import torch
 from torch.nn import Linear, Parameter, Module
-from torch_geometric.nn import GCNConv, GINConv 
+from torch_geometric.nn import GCNConv, GINConv, GATConv
 from torch_geometric.nn.pool import global_add_pool, TopKPooling, EdgePooling
 from torch_geometric.utils import add_self_loops, degree
 from pooling.edge_pool_hack import EdgePoolingHack
-
+import torch_geometric as pyg
 
 class GINandPool(torch.nn.Module):
     
     POOLING_OPTIONS = ['edge_pool', 'edge_pool_base', 'topk']
-    def __init__(self, in_channels, hidden_dim, out_channels, pool='topk', num_blocks=3, num_layers=4):
+    def __init__(self, in_channels, hidden_dim, out_channels, pool='topk', num_blocks=3, num_layers=4, conv_type='gin'):
         super().__init__()
         self.pool = pool
         self.num_blocks = num_blocks
@@ -21,10 +21,15 @@ class GINandPool(torch.nn.Module):
         self.poolings = torch.nn.ModuleList()
         for i in range(num_blocks):
             for j in range(num_layers):
-                mlp = torch.nn.Sequential(
-                    torch.nn.Linear(in_channels if i == 0 and j == -1 else hidden_dim, hidden_dim), torch.nn.ReLU(),
-                    torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())
-                self.layers.append(GINConv(mlp))#GCNConv(hidden_dim, hidden_dim))#
+                if conv_type == 'gin':
+                    mlp = torch.nn.Sequential(
+                        torch.nn.Linear(in_channels if i == 0 and j == -1 else hidden_dim, hidden_dim), torch.nn.ReLU(),
+                        torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())
+                    self.layers.append(GINConv(mlp))#GCNConv(hidden_dim, hidden_dim))#
+                elif conv_type == 'gcn':
+                    self.layers.append(GCNConv(hidden_dim, hidden_dim))
+                elif conv_type == 'gat':
+                    self.layers.append(GATConv(hidden_dim, hidden_dim))
 
             if i < num_blocks - 1:
                 if self.pool == 'edge_pool':

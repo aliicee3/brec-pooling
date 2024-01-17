@@ -8,7 +8,7 @@ import torch_geometric as pyg
 
 class GINandPool(torch.nn.Module):
     
-    POOLING_OPTIONS = ['edge_pool', 'edge_pool_base', 'topk']
+    POOLING_OPTIONS = ['edge_pool', 'edge_pool_base', 'topk', 'none']
     def __init__(self, in_channels, hidden_dim, out_channels, pool='topk', num_blocks=3, num_layers=4, conv_type='gin'):
         super().__init__()
         self.pool = pool
@@ -40,7 +40,7 @@ class GINandPool(torch.nn.Module):
                     self.poolings.append(
                         EdgePoolingHack(in_channels=hidden_dim, mlp1=mlp5, mlp2=mlp6, deterministic=False))
                 elif self.pool == 'edge_pool_base':
-                    self.pooling = EdgePooling(in_channels=hidden_dim)                
+                    self.pooling = EdgePooling(in_channels=hidden_dim)
                 elif self.pool == 'topk':
                     self.poolings.append(TopKPooling(in_channels))
 

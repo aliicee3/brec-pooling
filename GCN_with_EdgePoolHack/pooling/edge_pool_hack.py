@@ -66,7 +66,7 @@ class EdgePoolingHack(torch.nn.Module):
             add_to_edge_score: float = 0.5,
             mlp1=None,
             mlp2=None,
-            deterministic=True
+            learnable=True
     ):
         super().__init__()
         self.in_channels = in_channels
@@ -80,7 +80,7 @@ class EdgePoolingHack(torch.nn.Module):
 
         self.mlp1 = mlp1
         self.mlp2 = mlp2
-        self.deterministic = deterministic
+        self.learnable = learnable
 
     @staticmethod
     def compute_edge_score_softmax(
@@ -159,12 +159,22 @@ class EdgePoolingHack(torch.nn.Module):
 
         mask = torch.ones(x.size(0), dtype=torch.bool)
         new_batch = []
+        new_x = []
         edge_batch = batch[edge_index[0]]
         i = 0
         for batch_id in range(batch.max() + 1):
             batch_edges = edge_batch == batch_id
             scores = edge_score[batch_edges]
-            max_idx = torch.argmax(scores)
+            if self.learnable:
+                if self.training:
+                    one_hot = torch.nn.functional.gumbel_softmax(scores, hard=True)
+                    max_idx = one_hot.max(dim=0)[1]
+                else:
+                    max_idx = torch.argmax(scores)
+                    one_hot = torch.zeros_like(scores).scatter_(0, max_idx, 1.)
+                    new_x.append((x[edge_index[:, batch_edges]] * one_hot.view(1, -1, 1)).sum(dim=[0, 1]))
+            else:
+                max_idx = torch.argmax(scores)
             edge = edge_index[:, batch_edges][:, max_idx]
             cluster[edge[0]] = i
             cluster[edge[1]] = i
@@ -173,21 +183,39 @@ class EdgePoolingHack(torch.nn.Module):
             new_batch.append(batch_id)
             i += 1
 
-        # The remaining nodes are simply kept:
         j = int(mask.sum())
         cluster[mask] = torch.arange(i, i + j, device=x.device)
         i += j
         new_batch = torch.cat([torch.LongTensor(new_batch).to(batch.device), batch[mask]])
 
+        if self.learnable:
+            new_x = torch.stack(new_x)
+            new_x = torch.cat([new_x, x[mask]], dim=0)
+        else:
+            new_x = scatter(x, cluster, dim=0, dim_size=i, reduce='sum')
+
         # We compute the new features as an addition of the old ones after transformation and apply another mlp
         # X multiset
         # f(X) = g(\sum_{x\in X} h(x))
-        new_x = scatter(x, cluster, dim=0, dim_size=i, reduce='sum')
+
         new_x = self.mlp2(new_x)
+        # new_edge_score = edge_score[new_edge_indices]
+        # if int(mask.sum()) > 0:
+        #    remaining_score = x.new_ones(
+        #        (new_x.size(0) - len(new_edge_indices),))
+        #    new_edge_score = torch.cat([new_edge_score, remaining_score])
+        # new_x = new_x * new_edge_score.view(-1, 1)
 
         new_edge_index = coalesce(cluster[edge_index], num_nodes=new_x.size(0))
+        # new_batch = x.new_empty(new_x.size(0), dtype=torch.long)
+        # new_batch = new_batch.scatter_(0, cluster, batch)
 
-        return new_x, new_edge_index, new_batch, None
+        # unpool_info = UnpoolInfo(edge_index=edge_index, cluster=cluster,
+        #                         batch=batch, new_edge_score=new_edge_score)
+
+        # print('X:',x.shape, new_x.shape, torch.max(cluster), torch.max(new_edge_index), i, 'Edges:', edge_index.shape, new_edge_index.shape, print(len(cluster)), new_batch.max())
+
+        return new_x, new_edge_index, new_batch, None  # unpool_info
 
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}({self.in_channels})'

@@ -40,7 +40,7 @@ class GINandPool(torch.nn.Module):
                     self.poolings.append(
                         EdgePoolingHack(in_channels=hidden_dim, mlp1=mlp5, mlp2=mlp6, deterministic=False))
                 elif self.pool == 'edge_pool_base':
-                    self.pooling = EdgePooling(in_channels=hidden_dim)
+                    self.poolings.append(EdgePooling(in_channels=hidden_dim))
                 elif self.pool == 'topk':
                     self.poolings.append(TopKPooling(in_channels))
 

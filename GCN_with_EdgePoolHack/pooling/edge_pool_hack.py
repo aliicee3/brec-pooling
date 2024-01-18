@@ -172,7 +172,7 @@ class EdgePoolingHack(torch.nn.Module):
                 else:
                     max_idx = torch.argmax(scores)
                     one_hot = torch.zeros_like(scores).scatter_(0, max_idx, 1.)
-                    new_x.append((x[edge_index[:, batch_edges]] * one_hot.view(1, -1, 1)).sum(dim=[0, 1]))
+                new_x.append((x[edge_index[:, batch_edges]] * one_hot.view(1, -1, 1)).sum(dim=[0, 1]))
             else:
                 max_idx = torch.argmax(scores)
             edge = edge_index[:, batch_edges][:, max_idx]

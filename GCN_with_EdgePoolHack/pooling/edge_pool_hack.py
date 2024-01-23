@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor
 
-from torch_geometric.utils import coalesce, scatter, softmax
+from torch_geometric.utils import coalesce, scatter, softmax, remove_self_loops, cumsum
 
 
 class UnpoolInfo(NamedTuple):
@@ -132,6 +132,7 @@ class EdgePoolingHack(torch.nn.Module):
             * **unpool_info** *(UnpoolInfo)* - Information that is
               consumed by :func:`EdgePooling.unpool` for unpooling.
         """
+        edge_index, _ = remove_self_loops(edge_index)
         if scores is None:
             e = torch.cat([x[edge_index[0]], x[edge_index[1]]], dim=-1)
             e = self.lin(e).view(-1)
@@ -153,69 +154,76 @@ class EdgePoolingHack(torch.nn.Module):
             batch: Tensor,
             edge_score: Tensor,
     ) -> Tuple[Tensor, Tensor, Tensor, UnpoolInfo]:
-
         cluster = torch.empty_like(batch)
         x = self.mlp1(x)
 
-        mask = torch.ones(x.size(0), dtype=torch.bool)
-        new_batch = []
-        new_x = []
-        edge_batch = batch[edge_index[0]]
-        i = 0
-        for batch_id in range(batch.max() + 1):
-            batch_edges = edge_batch == batch_id
-            scores = edge_score[batch_edges]
-            if self.learnable:
-                if self.training:
-                    one_hot = torch.nn.functional.gumbel_softmax(scores, hard=True)
-                    max_idx = one_hot.max(dim=0)[1]
+        if not self.learnable:
+            node_mask = torch.ones(x.size(0), dtype=torch.bool)
+            edge_batch = batch[edge_index[0]]
+            num_edges = scatter(edge_batch.new_ones(edge_score.size(0)), edge_batch, reduce='sum')
+            k = num_edges.new_full((num_edges.size(0),), 1)
+            edge_scores, edge_scores_perm = torch.sort(edge_score.view(-1), descending=True)
+            edge_batch_sorted = edge_batch[edge_scores_perm]
+            edge_batch_sorted, edge_batch_perm = torch.sort(edge_batch_sorted, descending=False, stable=True)
+            arange = torch.arange(edge_scores.size(0), dtype=torch.long, device=x.device)
+            ptr = cumsum(num_edges)
+            edge_batched_arange = arange - ptr[edge_batch_sorted]
+            mask = edge_batched_arange < k[edge_batch_sorted]
+            edge_idxs = edge_scores_perm[edge_batch_perm[mask]]
+            x_new = x[edge_index[0, edge_idxs]] + x[edge_index[1, edge_idxs]]
+            node_mask[edge_index[:, edge_idxs].view(-1)] = False
+            batch_new = edge_batch[edge_idxs]
+            x_new = torch.cat([x_new, x[node_mask]], dim=0)
+            batch_new = torch.cat([batch_new, batch[node_mask]])
+            batch_nums = torch.arange(0, len(edge_idxs), device=cluster.device)
+            cluster[edge_index[0, edge_idxs]] = batch_nums
+            cluster[edge_index[1, edge_idxs]] = batch_nums
+            cluster[node_mask] = torch.arange(len(edge_idxs), node_mask.sum() + len(edge_idxs), device=cluster.device)
+
+            x_new = self.mlp2(x_new)
+            new_edge_index = coalesce(cluster[edge_index], num_nodes=x_new.size(0))
+            return x_new, new_edge_index, batch_new, None
+        else:
+            mask = torch.ones(x.size(0), dtype=torch.bool)
+            new_batch = []
+            new_x = []
+            edge_batch = batch[edge_index[0]]
+            i = 0
+            for batch_id in range(batch.max() + 1):
+                batch_edges = edge_batch == batch_id
+                scores = edge_score[batch_edges]
+                if self.learnable:
+                    if self.training:
+                        one_hot = torch.nn.functional.gumbel_softmax(scores, hard=True)
+                        max_idx = one_hot.max(dim=0)[1]
+                    else:
+                        max_idx = torch.argmax(scores)
+                        one_hot = torch.zeros_like(scores).scatter_(0, max_idx, 1.)
+                    new_x.append((x[edge_index[:, batch_edges]] * one_hot.view(1, -1, 1)).sum(dim=[0, 1]))
                 else:
                     max_idx = torch.argmax(scores)
-                    one_hot = torch.zeros_like(scores).scatter_(0, max_idx, 1.)
-                    new_x.append((x[edge_index[:, batch_edges]] * one_hot.view(1, -1, 1)).sum(dim=[0, 1]))
+                edge = edge_index[:, batch_edges][:, max_idx]
+                cluster[edge[0]] = i
+                cluster[edge[1]] = i
+                mask[edge[0]] = False
+                mask[edge[1]] = False
+                new_batch.append(batch_id)
+                i += 1
+
+            j = int(mask.sum())
+            cluster[mask] = torch.arange(i, i + j, device=x.device)
+            i += j
+            new_batch = torch.cat([torch.LongTensor(new_batch).to(batch.device), batch[mask]])
+
+            if self.learnable:
+                new_x = torch.stack(new_x)
+                new_x = torch.cat([new_x, x[mask]], dim=0)
             else:
-                max_idx = torch.argmax(scores)
-            edge = edge_index[:, batch_edges][:, max_idx]
-            cluster[edge[0]] = i
-            cluster[edge[1]] = i
-            mask[edge[0]] = False
-            mask[edge[1]] = False
-            new_batch.append(batch_id)
-            i += 1
+                new_x = scatter(x, cluster, dim=0, dim_size=i, reduce='sum')
 
-        j = int(mask.sum())
-        cluster[mask] = torch.arange(i, i + j, device=x.device)
-        i += j
-        new_batch = torch.cat([torch.LongTensor(new_batch).to(batch.device), batch[mask]])
-
-        if self.learnable:
-            new_x = torch.stack(new_x)
-            new_x = torch.cat([new_x, x[mask]], dim=0)
-        else:
-            new_x = scatter(x, cluster, dim=0, dim_size=i, reduce='sum')
-
-        # We compute the new features as an addition of the old ones after transformation and apply another mlp
-        # X multiset
-        # f(X) = g(\sum_{x\in X} h(x))
-
-        new_x = self.mlp2(new_x)
-        # new_edge_score = edge_score[new_edge_indices]
-        # if int(mask.sum()) > 0:
-        #    remaining_score = x.new_ones(
-        #        (new_x.size(0) - len(new_edge_indices),))
-        #    new_edge_score = torch.cat([new_edge_score, remaining_score])
-        # new_x = new_x * new_edge_score.view(-1, 1)
-
-        new_edge_index = coalesce(cluster[edge_index], num_nodes=new_x.size(0))
-        # new_batch = x.new_empty(new_x.size(0), dtype=torch.long)
-        # new_batch = new_batch.scatter_(0, cluster, batch)
-
-        # unpool_info = UnpoolInfo(edge_index=edge_index, cluster=cluster,
-        #                         batch=batch, new_edge_score=new_edge_score)
-
-        # print('X:',x.shape, new_x.shape, torch.max(cluster), torch.max(new_edge_index), i, 'Edges:', edge_index.shape, new_edge_index.shape, print(len(cluster)), new_batch.max())
-
-        return new_x, new_edge_index, new_batch, None  # unpool_info
+            new_x = self.mlp2(new_x)
+            new_edge_index = coalesce(cluster[edge_index], num_nodes=new_x.size(0))
+            return new_x, new_edge_index, new_batch, None  # unpool_info
 
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}({self.in_channels})'

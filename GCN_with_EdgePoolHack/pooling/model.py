@@ -38,7 +38,7 @@ class GINandPool(torch.nn.Module):
                     mlp6 = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(),
                                                torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())
                     self.poolings.append(
-                        EdgePoolingHack(in_channels=hidden_dim, mlp1=mlp5, mlp2=mlp6, learnable=True))
+                        EdgePoolingHack(in_channels=hidden_dim, mlp1=mlp5, mlp2=mlp6, alpha=0.999))
                 elif self.pool == 'edge_pool_base':
                     self.poolings.append(EdgePooling(in_channels=hidden_dim))
                 elif self.pool == 'topk':

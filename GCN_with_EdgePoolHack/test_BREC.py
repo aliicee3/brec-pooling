@@ -20,12 +20,11 @@ from torch.nn import CosineEmbeddingLoss
 import argparse
 from pooling.model import GINandPool
 
-NUM_RELABEL = 32
+
 P_NORM = 2
 OUTPUT_DIM = 16
 EPSILON_MATRIX = 1e-7
 EPSILON_CMP = 1e-6
-SAMPLE_NUM = 400
 EPOCH = 2 # 20
 MARGIN = 0.0
 LEARNING_RATE = 1e-4
@@ -41,34 +40,6 @@ for k, v in global_var.items():
     if isinstance(v, int) or isinstance(v, float):
         HYPERPARAM_DICT[k] = v
 
-# part_dict: {graph generation type, range}
-brec_part_dict = {
-    "Basic": (0, 60),
-    "Regular": (60, 160),
-    "Extension": (160, 260),
-    "CFI": (260, 360),
-    "4-Vertex_Condition": (360, 380),
-    "Distance_Regular": (380, 400),
-}
-# aachen_part_dict = {
-#     'test0': (0, 10),
-#     # 'cfi-rigid-z2': (0, 376), 
-#     # 'cfi-rigid-r2': (376, 776), 
-#     # 'cfi-rigid-s2': (776, 1280), 
-#     # 'cfi-rigid-t2': (1280, 1804), 
-#     # 'cfi-rigid-z3': (1804, 1988), 
-#     # 'cfi-rigid-d3': (1988, 2172)
-# }
-aachen_part_dict = {
-    # 'test0': (0, 10),
-    'cfi-rigid-z2': (0, 188), 
-    'cfi-rigid-r2': (188, 388), 
-    'cfi-rigid-s2': (388, 640), 
-    'cfi-rigid-t2': (640, 902), 
-    'cfi-rigid-z3': (902, 994), 
-    'cfi-rigid-d3': (994, 1086)
-}
-part_dicts = {'BREC_v3': brec_part_dict, 'AACHEN': aachen_part_dict}
 
 parser = argparse.ArgumentParser(description="BREC Test")
 
@@ -83,10 +54,10 @@ parser.add_argument("--THRESHOLD", type=float, default=THRESHOLD)
 parser.add_argument("--MARGIN", type=float, default=MARGIN)
 parser.add_argument("--LOSS_THRESHOLD", type=float, default=LOSS_THRESHOLD)
 parser.add_argument("--device", type=int, default=0)
-parser.add_argument("--POOLING", type=str, default="edge_pool", choices=GINandPool.POOLING_OPTIONS)
+parser.add_argument("--POOLING", type=str, default="none", choices=GINandPool.POOLING_OPTIONS) # edge_pool
 parser.add_argument("--CONV_TYPE", type=str, default="gin")
 parser.add_argument("--HIDDEN_DIM", type=int, default=16)
-parser.add_argument("--DATASET", type=str, default='BREC_v3', choices=['BREC_v3', 'AACHEN'])
+parser.add_argument("--DATASET", type=str, default='AACHEN', choices=['BREC_v3', 'AACHEN'])
 dataloaders = {'BREC_v3': BRECDataset, 'AACHEN': AachenDataset}
 
 # General settings.
@@ -107,10 +78,42 @@ torch_geometric.seed_everything(SEED)
 torch.backends.cudnn.deterministic = True
 # torch.use_deterministic_algorithms(True)
 
-if args.DATASET == 'AACHEN':
-    # disable 'reliability test' that requires indices outside of the range of data we have
+if args.DATASET == 'AACHEN': 
+    # number of pairs in the dataset
+    SAMPLE_NUM = 1086
+
+    # number of vertex-permuted repetitions of pairs
+    # if this number is 1, we need to use the hacked T2 test as supposed by the BREC authors
     NUM_RELABEL = 1
-    SAMPLE_NUM = 1
+
+    # part_dict: {graph generation type, range} ... note that indices have to be multiplied by two as two consecutive graphs form a pair
+    part_dict = {
+        'test10': (0,10),
+        'cfi-rigid-z2': (0, 188), 
+        'cfi-rigid-r2': (188, 388), 
+        'cfi-rigid-s2': (388, 640), 
+        'cfi-rigid-t2': (640, 902), 
+        'cfi-rigid-z3': (902, 994), 
+        'cfi-rigid-d3': (994, 1086)
+    }
+
+if args.DATASET == 'BREC_v3':
+    # number of pairs in the dataset
+    SAMPLE_NUM = 400
+
+    # number of vertex-permuted repetitions of pairs
+    NUM_RELABEL = 32
+
+
+    # part_dict: {graph generation type, range} ... note that indices have to be multiplied by two as two consecutive graphs form a pair
+    part_dict = {
+        "Basic": (0, 60),
+        "Regular": (60, 160),
+        "Extension": (160, 260),
+        "CFI": (260, 360),
+        "4-Vertex_Condition": (360, 380),
+        "Distance_Regular": (380, 400),
+    }
 
 
 # Stage 1: pre calculation
@@ -119,6 +122,7 @@ def pre_calculation(*args, **kwargs):
     time_start = time.process_time()
 
     # Do something
+    ## we don't do anything to the data
 
     time_end = time.process_time()
     time_cost = round(time_end - time_start, 2)
@@ -156,8 +160,6 @@ def get_model(args, device, dataset):
     time_cost = round(time_end - time_start, 2)
     logger.info(f"model construction time cost: {time_cost}")
     return model
-
-
 
 
 # Stage 4: evaluation
@@ -222,8 +224,11 @@ def evaluation(dataset, model, path, device, args):
             return torch.mm(torch.mm(D_mean.T, inv_S), D_mean)
 
 
-    T2_calculations = {'BREC_v3': T2_calculation_brec, 'AACHEN': T2_calculation_aachen}
-    T2_calculation = T2_calculations[args.DATASET]
+    # T2_calculations = {'BREC_v3': T2_calculation_brec, 'AACHEN': T2_calculation_aachen}
+    # T2_calculation = T2_calculations[args.DATASET]
+
+    # if NUM_RELABEL is 1, we need to use the hacked T2 test as supposed by the BREC authors 
+    T2_calculation = T2_calculation_brec if NUM_RELABEL == 1 else T2_calculation_aachen
 
     time_start = time.process_time()
 
@@ -233,7 +238,7 @@ def evaluation(dataset, model, path, device, args):
     fail_in_reliability = 0
     loss_func = CosineEmbeddingLoss(margin=MARGIN)
 
-    for part_name, part_range in part_dicts[args.DATASET].items():
+    for part_name, part_range in part_dict.items():
         logger.info(f"{part_name} part starting ---")
 
         cnt_part = 0

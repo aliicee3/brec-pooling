@@ -13,6 +13,7 @@ import torch_geometric.loader
 from loguru import logger
 import time
 from BRECDataset_v3 import BRECDataset
+from AachenDataset import AachenDataset
 from tqdm import tqdm
 import os
 from torch.nn import CosineEmbeddingLoss
@@ -25,7 +26,7 @@ OUTPUT_DIM = 16
 EPSILON_MATRIX = 1e-7
 EPSILON_CMP = 1e-6
 SAMPLE_NUM = 400
-EPOCH = 20
+EPOCH = 2 # 20
 MARGIN = 0.0
 LEARNING_RATE = 1e-4
 THRESHOLD = 72.34
@@ -41,14 +42,34 @@ for k, v in global_var.items():
         HYPERPARAM_DICT[k] = v
 
 # part_dict: {graph generation type, range}
-part_dict = {
+brec_part_dict = {
     "Basic": (0, 60),
-    #"Regular": (60, 160),
+    "Regular": (60, 160),
     "Extension": (160, 260),
-    #"CFI": (260, 360),
-    #"4-Vertex_Condition": (360, 380),
-    #"Distance_Regular": (380, 400),
+    "CFI": (260, 360),
+    "4-Vertex_Condition": (360, 380),
+    "Distance_Regular": (380, 400),
 }
+# aachen_part_dict = {
+#     'test0': (0, 10),
+#     # 'cfi-rigid-z2': (0, 376), 
+#     # 'cfi-rigid-r2': (376, 776), 
+#     # 'cfi-rigid-s2': (776, 1280), 
+#     # 'cfi-rigid-t2': (1280, 1804), 
+#     # 'cfi-rigid-z3': (1804, 1988), 
+#     # 'cfi-rigid-d3': (1988, 2172)
+# }
+aachen_part_dict = {
+    # 'test0': (0, 10),
+    'cfi-rigid-z2': (0, 188), 
+    'cfi-rigid-r2': (188, 388), 
+    'cfi-rigid-s2': (388, 640), 
+    'cfi-rigid-t2': (640, 902), 
+    'cfi-rigid-z3': (902, 994), 
+    'cfi-rigid-d3': (994, 1086)
+}
+part_dicts = {'BREC_v3': brec_part_dict, 'AACHEN': aachen_part_dict}
+
 parser = argparse.ArgumentParser(description="BREC Test")
 
 parser.add_argument("--P_NORM", type=str, default="2")
@@ -65,6 +86,8 @@ parser.add_argument("--device", type=int, default=0)
 parser.add_argument("--POOLING", type=str, default="edge_pool", choices=GINandPool.POOLING_OPTIONS)
 parser.add_argument("--CONV_TYPE", type=str, default="gin")
 parser.add_argument("--HIDDEN_DIM", type=int, default=16)
+parser.add_argument("--DATASET", type=str, default='AACHEN', choices=['BREC_v3', 'AACHEN'])
+dataloaders = {'BREC_v3': BRECDataset, 'AACHEN': AachenDataset}
 
 # General settings.
 args = parser.parse_args()
@@ -83,6 +106,11 @@ POOLING = args.POOLING
 torch_geometric.seed_everything(SEED)
 torch.backends.cudnn.deterministic = True
 # torch.use_deterministic_algorithms(True)
+
+if args.DATASET == 'AACHEN':
+    # disable 'reliability test' that requires indices outside of the range of data we have
+    NUM_RELABEL = 1
+    SAMPLE_NUM = 1
 
 
 # Stage 1: pre calculation
@@ -103,7 +131,7 @@ def get_dataset(name, device):
     time_start = time.process_time()
 
     # Do something
-    dataset = BRECDataset(name=name)
+    dataset = dataloaders[name](name=name)
 
     time_end = time.process_time()
     time_cost = round(time_end - time_start, 2)
@@ -130,6 +158,8 @@ def get_model(args, device, dataset):
     return model
 
 
+
+
 # Stage 4: evaluation
 # Here is for evaluation.
 def evaluation(dataset, model, path, device, args):
@@ -143,7 +173,7 @@ def evaluation(dataset, model, path, device, args):
     # S_epsilon = torch.diag(
     #     torch.full(size=(OUTPUT_DIM, 1), fill_value=EPSILON_MATRIX).reshape(-1)
     # ).to(device)
-    def T2_calculation(dataset, log_flag=False):
+    def T2_calculation_brec(dataset, log_flag=False):
         with torch.no_grad():
             loader = torch_geometric.loader.DataLoader(dataset, batch_size=BATCH_SIZE)
             pred_0_list = []
@@ -165,6 +195,36 @@ def evaluation(dataset, model, path, device, args):
             # inv_S = torch.linalg.pinv(S + S_epsilon)
             return torch.mm(torch.mm(D_mean.T, inv_S), D_mean)
 
+    # If you want to test on some simple graphs without permutation outputting the exact same embedding, please use S_epsilon.
+    S_epsilon = torch.diag(
+        torch.full(size=(OUTPUT_DIM, 1), fill_value=EPSILON_MATRIX).reshape(-1)
+    ).to(torch.device(device))
+    def T2_calculation_aachen(dataset, log_flag=False):
+        with torch.no_grad():
+            loader = torch_geometric.loader.DataLoader(dataset, batch_size=BATCH_SIZE)
+            pred_0_list = []
+            pred_1_list = []
+            for data in loader:
+                pred = model(data.to(device)).detach()
+                pred_0_list.extend(pred[0::2])
+                pred_1_list.extend(pred[1::2])
+            X = torch.cat([x.reshape(1, -1) for x in pred_0_list], dim=0).T
+            Y = torch.cat([x.reshape(1, -1) for x in pred_1_list], dim=0).T
+            if log_flag:
+                logger.info(f"X_mean = {torch.mean(X, dim=1)}")
+                logger.info(f"Y_mean = {torch.mean(Y, dim=1)}")
+            D = X - Y
+            D_mean = torch.mean(D, dim=1).reshape(-1, 1)
+            S = torch.cov(D)
+            # inv_S = torch.linalg.pinv(S)
+            # If you want to test on some simple graphs without permutation outputting the exact same embedding, please use inv_S with S_epsilon.
+            inv_S = torch.linalg.pinv(S + S_epsilon)
+            return torch.mm(torch.mm(D_mean.T, inv_S), D_mean)
+
+
+    T2_calculations = {'BREC_v3': T2_calculation_brec, 'AACHEN': T2_calculation_aachen}
+    T2_calculation = T2_calculations[args.DATASET]
+
     time_start = time.process_time()
 
     # Do something
@@ -173,7 +233,7 @@ def evaluation(dataset, model, path, device, args):
     fail_in_reliability = 0
     loss_func = CosineEmbeddingLoss(margin=MARGIN)
 
-    for part_name, part_range in part_dict.items():
+    for part_name, part_range in part_dicts[args.DATASET].items():
         logger.info(f"{part_name} part starting ---")
 
         cnt_part = 0
@@ -187,16 +247,28 @@ def evaluation(dataset, model, path, device, args):
                 model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
             )
             scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer)
-            dataset_traintest = dataset[
-                id * NUM_RELABEL * 2 : (id + 1) * NUM_RELABEL * 2
-            ]
-            dataset_reliability = dataset[
-                (id + SAMPLE_NUM)
-                * NUM_RELABEL
-                * 2 : (id + SAMPLE_NUM + 1)
-                * NUM_RELABEL
-                * 2
-            ]
+            if args.DATASET == 'BREC_v3':
+                v1 = id * NUM_RELABEL * 2
+                v2 = (id + 1) * NUM_RELABEL * 2
+                dataset_traintest = dataset[
+                    v1 : v2
+                ]
+                v3 = (id + SAMPLE_NUM) * NUM_RELABEL * 2
+                v4 = (id + SAMPLE_NUM + 1) * NUM_RELABEL * 2
+                dataset_reliability = dataset[
+                    v3 : v4 
+                ]
+            elif args.DATASET == 'AACHEN':
+                # we just duplicate the same graph multiple times
+                dataset_traintest = dataset[
+                    id*2, id*2+1, id*2, id*2+1
+                ]
+                dataset_reliability = dataset[
+                    id*2, id*2, id*2, id*2
+                ]
+            else:
+                raise ValueError(f'unknown dataset argument: {args.DATASET}')
+
             model.train()
             for _ in range(EPOCH):
                 traintest_loader = torch_geometric.loader.DataLoader(
@@ -206,6 +278,8 @@ def evaluation(dataset, model, path, device, args):
                 for data in traintest_loader:
                     optimizer.zero_grad()
                     pred = model(data.to(device))
+                    p1 = pred[0::2]
+                    p2 = pred[1::2]
                     loss = loss_func(
                         pred[0::2],
                         pred[1::2],
@@ -277,20 +351,20 @@ def evaluation(dataset, model, path, device, args):
 def main():
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
 
-    OUT_PATH = f"result_BREC_{args.POOLING}"
+    OUT_PATH = f"result_{args.DATASET}_{args.POOLING}"
     NAME = args.CONV_TYPE
-    DATASET_NAME = "BREC_v3"
     path = os.path.join(OUT_PATH, NAME)
     os.makedirs(path, exist_ok=True)
 
     logger.remove(handler_id=None)
     LOG_NAME = os.path.join(path, "log.txt")
     logger.add(LOG_NAME, rotation="5MB")
-
     logger.info(args)
 
+    dataset_name = args.DATASET
+
     pre_calculation()
-    dataset = get_dataset(name=DATASET_NAME, device=device)
+    dataset = get_dataset(name=dataset_name, device=device)
     model = get_model(args, device, dataset)
     evaluation(dataset, model, OUT_PATH, device, args)
 

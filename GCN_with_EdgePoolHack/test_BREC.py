@@ -86,7 +86,7 @@ parser.add_argument("--device", type=int, default=0)
 parser.add_argument("--POOLING", type=str, default="edge_pool", choices=GINandPool.POOLING_OPTIONS)
 parser.add_argument("--CONV_TYPE", type=str, default="gin")
 parser.add_argument("--HIDDEN_DIM", type=int, default=16)
-parser.add_argument("--DATASET", type=str, default='AACHEN', choices=['BREC_v3', 'AACHEN'])
+parser.add_argument("--DATASET", type=str, default='BREC_v3', choices=['BREC_v3', 'AACHEN'])
 dataloaders = {'BREC_v3': BRECDataset, 'AACHEN': AachenDataset}
 
 # General settings.

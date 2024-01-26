@@ -71,7 +71,7 @@ class EdgePoolingHack(torch.nn.Module):
         super().__init__()
         self.in_channels = in_channels
         if edge_score_method is None:
-            edge_score_method = self.compute_edge_score_softmax
+            edge_score_method = self.compute_edge_score_sigmoid
         self.compute_edge_score = edge_score_method
         self.add_to_edge_score = add_to_edge_score
         self.dropout = dropout
@@ -81,6 +81,7 @@ class EdgePoolingHack(torch.nn.Module):
         self.mlp1 = mlp1
         self.mlp2 = mlp2
         self.alpha = alpha
+        self.epsilon = 1e-5
 
     @staticmethod
     def compute_edge_score_softmax(
@@ -137,7 +138,7 @@ class EdgePoolingHack(torch.nn.Module):
             e = torch.cat([x[edge_index[0]], x[edge_index[1]]], dim=-1)
             e = self.lin(e).view(-1)
             e = F.dropout(e, p=self.dropout, training=self.training)
-            # e = self.compute_edge_score(e, edge_index, x.size(0))
+            e = self.compute_edge_score(e, edge_index, x.size(0))
             e = e + self.add_to_edge_score
         else:
             e = scores
@@ -167,7 +168,7 @@ class EdgePoolingHack(torch.nn.Module):
             if len(batch_scores) > 0:
                 max_score = batch_scores.max()
                 min_score = batch_scores.min()
-                threshold = min_score + (max_score - min_score) * self.alpha
+                threshold = min_score + (max_score - min_score) * self.alpha - self.epsilon
                 edges_to_pool = batch_scores > threshold
                 edges_in_batch = edge_index[:, is_in_batch][:, edges_to_pool]
                 for edge in edges_in_batch.t():

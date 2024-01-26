@@ -173,8 +173,17 @@ class EdgePoolingHack(torch.nn.Module):
                 for edge in edges_in_batch.t():
                     if not mask[edge[0]]:
                         continue
-                        cluster[edge[1]] = cluster[edge[0]]
-                        mask[edge[1]] = False
+                        if (not mask[edge[1]]) and (cluster[edge[0]] != cluster[edge[1]]):
+                            other_cluster_id = max(cluster[edge[1]], cluster[edge[0]])
+                            reassign = cluster == other_cluster_id
+                            cluster[reassign] = min(cluster[edge[0]], cluster[edge[1]])
+                            too_high = cluster > other_cluster_id
+                            cluster[too_high] -= 1
+                            i -= 1
+                            del new_batch[other_cluster_id]
+                        else:
+                            cluster[edge[1]] = cluster[edge[0]]
+                            mask[edge[1]] = False
                     elif not mask[edge[1]]:
                         continue
                         cluster[edge[0]] = cluster[edge[1]]

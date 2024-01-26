@@ -20,61 +20,37 @@ from torch.nn import CosineEmbeddingLoss
 import argparse
 from pooling.model import GINandPool
 
-
-P_NORM = 2
-OUTPUT_DIM = 16
-EPSILON_MATRIX = 1e-7
-EPSILON_CMP = 1e-6
-EPOCH = 2 # 20
-MARGIN = 0.0
-LEARNING_RATE = 1e-4
-THRESHOLD = 72.34
-BATCH_SIZE = 16
-WEIGHT_DECAY = 0#1e-4
-LOSS_THRESHOLD = 0.2
-SEED = 2023
-
-global_var = globals().copy()
-HYPERPARAM_DICT = dict()
-for k, v in global_var.items():
-    if isinstance(v, int) or isinstance(v, float):
-        HYPERPARAM_DICT[k] = v
-
+# global_var = globals().copy()
+# HYPERPARAM_DICT = dict()
+# for k, v in global_var.items():
+#     if isinstance(v, int) or isinstance(v, float):
+#         HYPERPARAM_DICT[k] = v
 
 parser = argparse.ArgumentParser(description="BREC Test")
 
-parser.add_argument("--P_NORM", type=str, default="2")
-parser.add_argument("--EPOCH", type=int, default=EPOCH)
-parser.add_argument("--LEARNING_RATE", type=float, default=LEARNING_RATE)
-parser.add_argument("--BATCH_SIZE", type=int, default=BATCH_SIZE)
-parser.add_argument("--WEIGHT_DECAY", type=float, default=WEIGHT_DECAY)
-parser.add_argument("--OUTPUT_DIM", type=int, default=OUTPUT_DIM)
-parser.add_argument("--SEED", type=int, default=SEED)
-parser.add_argument("--THRESHOLD", type=float, default=THRESHOLD)
-parser.add_argument("--MARGIN", type=float, default=MARGIN)
-parser.add_argument("--LOSS_THRESHOLD", type=float, default=LOSS_THRESHOLD)
+parser.add_argument("--EPSILON_MATRIX", type=float, default=1e-7)
+parser.add_argument("--EPSILON_CMP", type=float, default=1e-6)
+parser.add_argument("--P_NORM", type=str, default="2", choices=['2', 'inf'])
+parser.add_argument("--EPOCH", type=int, default=20)
+parser.add_argument("--LEARNING_RATE", type=float, default=1e-4)
+parser.add_argument("--BATCH_SIZE", type=int, default=16)
+parser.add_argument("--WEIGHT_DECAY", type=float, default=0) #1e-4
+parser.add_argument("--OUTPUT_DIM", type=int, default=16)
+parser.add_argument("--SEED", type=int, default=2023)
+parser.add_argument("--THRESHOLD", type=float, default=72.34)
+parser.add_argument("--MARGIN", type=float, default=0.0)
+parser.add_argument("--LOSS_THRESHOLD", type=float, default=0.2)
 parser.add_argument("--device", type=int, default=0)
-parser.add_argument("--POOLING", type=str, default="none", choices=GINandPool.POOLING_OPTIONS) # edge_pool
+parser.add_argument("--POOLING", type=str, default="edge_pool", choices=GINandPool.POOLING_OPTIONS) # edge_pool
 parser.add_argument("--CONV_TYPE", type=str, default="gin")
 parser.add_argument("--HIDDEN_DIM", type=int, default=16)
-parser.add_argument("--DATASET", type=str, default='AACHEN', choices=['BREC_v3', 'AACHEN'])
-dataloaders = {'BREC_v3': BRECDataset, 'AACHEN': AachenDataset}
+parser.add_argument("--DATASET", type=str, default='BREC_v3', choices=['BREC_v3', 'AACHEN'])
 
 # General settings.
 args = parser.parse_args()
 
-P_NORM = 2 if args.P_NORM == "2" else torch.inf
-EPOCH = args.EPOCH
-LEARNING_RATE = args.LEARNING_RATE
-BATCH_SIZE = args.BATCH_SIZE
-WEIGHT_DECAY = args.WEIGHT_DECAY
-OUTPUT_DIM = args.OUTPUT_DIM
-SEED = args.SEED
-THRESHOLD = args.THRESHOLD
-MARGIN = args.MARGIN
-LOSS_THRESHOLD = args.LOSS_THRESHOLD
-POOLING = args.POOLING
-torch_geometric.seed_everything(SEED)
+args.P_NORM = 2 if args.P_NORM == "2" else torch.inf
+torch_geometric.seed_everything(args.SEED)
 torch.backends.cudnn.deterministic = True
 # torch.use_deterministic_algorithms(True)
 
@@ -88,7 +64,6 @@ if args.DATASET == 'AACHEN':
 
     # part_dict: {graph generation type, range} ... note that indices have to be multiplied by two as two consecutive graphs form a pair
     part_dict = {
-        'test10': (0,10),
         'cfi-rigid-z2': (0, 188), 
         'cfi-rigid-r2': (188, 388), 
         'cfi-rigid-s2': (388, 640), 
@@ -97,13 +72,14 @@ if args.DATASET == 'AACHEN':
         'cfi-rigid-d3': (994, 1086)
     }
 
+    dataloader = AachenDataset
+
 if args.DATASET == 'BREC_v3':
     # number of pairs in the dataset
     SAMPLE_NUM = 400
 
     # number of vertex-permuted repetitions of pairs
     NUM_RELABEL = 32
-
 
     # part_dict: {graph generation type, range} ... note that indices have to be multiplied by two as two consecutive graphs form a pair
     part_dict = {
@@ -114,6 +90,8 @@ if args.DATASET == 'BREC_v3':
         "4-Vertex_Condition": (360, 380),
         "Distance_Regular": (380, 400),
     }
+
+    dataloader = BRECDataset
 
 
 # Stage 1: pre calculation
@@ -135,7 +113,7 @@ def get_dataset(name, device):
     time_start = time.process_time()
 
     # Do something
-    dataset = dataloaders[name](name=name)
+    dataset = dataloader(name=name)
 
     time_end = time.process_time()
     time_cost = round(time_end - time_start, 2)
@@ -151,7 +129,7 @@ def get_model(args, device, dataset):
 
     in_channels = 1
     hidden_dim = args.HIDDEN_DIM
-    out_channels = OUTPUT_DIM
+    out_channels = args.OUTPUT_DIM
 
     # Do something
     model = GINandPool(in_channels=in_channels, hidden_dim=hidden_dim, out_channels=out_channels, pool=args.POOLING, conv_type=args.CONV_TYPE).to(device)
@@ -177,7 +155,7 @@ def evaluation(dataset, model, path, device, args):
     # ).to(device)
     def T2_calculation_brec(dataset, log_flag=False):
         with torch.no_grad():
-            loader = torch_geometric.loader.DataLoader(dataset, batch_size=BATCH_SIZE)
+            loader = torch_geometric.loader.DataLoader(dataset, batch_size=args.BATCH_SIZE)
             pred_0_list = []
             pred_1_list = []
             for data in loader:
@@ -199,11 +177,11 @@ def evaluation(dataset, model, path, device, args):
 
     # If you want to test on some simple graphs without permutation outputting the exact same embedding, please use S_epsilon.
     S_epsilon = torch.diag(
-        torch.full(size=(OUTPUT_DIM, 1), fill_value=EPSILON_MATRIX).reshape(-1)
+        torch.full(size=(args.OUTPUT_DIM, 1), fill_value=args.EPSILON_MATRIX).reshape(-1)
     ).to(torch.device(device))
     def T2_calculation_aachen(dataset, log_flag=False):
         with torch.no_grad():
-            loader = torch_geometric.loader.DataLoader(dataset, batch_size=BATCH_SIZE)
+            loader = torch_geometric.loader.DataLoader(dataset, batch_size=args.BATCH_SIZE)
             pred_0_list = []
             pred_1_list = []
             for data in loader:
@@ -223,20 +201,20 @@ def evaluation(dataset, model, path, device, args):
             inv_S = torch.linalg.pinv(S + S_epsilon)
             return torch.mm(torch.mm(D_mean.T, inv_S), D_mean)
 
-
-    # T2_calculations = {'BREC_v3': T2_calculation_brec, 'AACHEN': T2_calculation_aachen}
-    # T2_calculation = T2_calculations[args.DATASET]
-
     # if NUM_RELABEL is 1, we need to use the hacked T2 test as supposed by the BREC authors 
-    T2_calculation = T2_calculation_brec if NUM_RELABEL == 1 else T2_calculation_aachen
+    T2_calculation = T2_calculation_brec if NUM_RELABEL > 1 else T2_calculation_aachen
 
     time_start = time.process_time()
+
+    logger.info(args)
 
     # Do something
     cnt = 0
     correct_list = []
     fail_in_reliability = 0
-    loss_func = CosineEmbeddingLoss(margin=MARGIN)
+    loss_func = CosineEmbeddingLoss(margin=args.MARGIN)
+
+    part_result = dict()
 
     for part_name, part_range in part_dict.items():
         logger.info(f"{part_name} part starting ---")
@@ -249,7 +227,7 @@ def evaluation(dataset, model, path, device, args):
             logger.info(f"ID: {id}")
             model = get_model(args, device, dataset)
             optimizer = torch.optim.Adam(
-                model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
+                model.parameters(), lr=args.LEARNING_RATE, weight_decay=args.WEIGHT_DECAY
             )
             scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer)
             if args.DATASET == 'BREC_v3':
@@ -275,9 +253,9 @@ def evaluation(dataset, model, path, device, args):
                 raise ValueError(f'unknown dataset argument: {args.DATASET}')
 
             model.train()
-            for _ in range(EPOCH):
+            for _ in range(args.EPOCH):
                 traintest_loader = torch_geometric.loader.DataLoader(
-                    dataset_traintest, batch_size=BATCH_SIZE
+                    dataset_traintest, batch_size=args.BATCH_SIZE
                 )
                 loss_all = 0
                 for data in traintest_loader:
@@ -295,7 +273,7 @@ def evaluation(dataset, model, path, device, args):
                     loss_all += len(pred) / 2 * loss.item()
                 loss_all /= NUM_RELABEL
                 logger.info(f"Loss: {loss_all}")
-                if loss_all < LOSS_THRESHOLD:
+                if loss_all < args.LOSS_THRESHOLD:
                     logger.info("Early Stop Here")
                     break
                 scheduler.step(loss_all)
@@ -306,11 +284,11 @@ def evaluation(dataset, model, path, device, args):
 
             isomorphic_flag = False
             reliability_flag = False
-            if T_square_traintest > THRESHOLD and not torch.isclose(
-                T_square_traintest, T_square_reliability, atol=EPSILON_CMP
+            if T_square_traintest > args.THRESHOLD and not torch.isclose(
+                T_square_traintest, T_square_reliability, atol=args.EPSILON_CMP
             ):
                 isomorphic_flag = True
-            if T_square_reliability < THRESHOLD:
+            if T_square_reliability < args.THRESHOLD:
                 reliability_flag = True
 
             if isomorphic_flag:
@@ -326,6 +304,8 @@ def evaluation(dataset, model, path, device, args):
 
         end = time.process_time()
         time_cost_part = round(end - start, 2)
+
+        part_result[part_name] = cnt_part
 
         logger.info(
             f"{part_name} part costs time {time_cost_part}; Correct in {cnt_part} / {part_range[1] - part_range[0]}"
@@ -344,12 +324,24 @@ def evaluation(dataset, model, path, device, args):
     logger.info(f"Fail in reliability: {fail_in_reliability} / {SAMPLE_NUM}")
     logger.info(correct_list)
 
+    logger.add(f"{path}/table.tex", format="{message}", encoding="utf-8")
+    logger.info(args)
+    logger.info('\n\\begin{tabular}{lll}\n\\toprule\n')
+    logger.info(f'\\multirow[c]{{ {len(part_result) + 1} }}{{*}}{{ {args.POOLING} }}')
+    for part, cnt_part in part_result.items():
+        logger.info(f'& {part} & {cnt_part} / {part_range[1] - part_range[0]} \\\\')
+    logger.info(f'& Adjusted correct & {cnt-fail_in_reliability} / {SAMPLE_NUM} \\\\')
+    logger.info('\\midrule')
+
+    logger.info('\n\\bottomrule\n\\end{tabular}\n')
+
+
     logger.add(f"{path}/result_show.txt", format="{message}", encoding="utf-8")
     logger.info(
         "Real_correct\tCorrect\tFail\tOUTPUT_DIM\tBATCH_SIZE\tLEARNING_RATE\tWEIGHT_DECAY\tSEED"
     )
     logger.info(
-        f"{cnt-fail_in_reliability}\t{cnt}\t{fail_in_reliability}\t{OUTPUT_DIM}\t{BATCH_SIZE}\t{LEARNING_RATE}\t{WEIGHT_DECAY}\t{SEED}"
+        f"{cnt-fail_in_reliability}\t{cnt}\t{fail_in_reliability}\t{args.OUTPUT_DIM}\t{args.BATCH_SIZE}\t{args.LEARNING_RATE}\t{args.WEIGHT_DECAY}\t{args.SEED}"
     )
 
 

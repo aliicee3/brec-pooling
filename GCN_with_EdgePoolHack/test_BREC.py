@@ -82,6 +82,8 @@ if args.DATASET == 'AACHEN':
     # number of pairs in the dataset
     SAMPLE_NUM = 1086
 
+    EPOCH = 2
+
     # number of vertex-permuted repetitions of pairs
     # if this number is 1, we need to use the hacked T2 test as supposed by the BREC authors
     NUM_RELABEL = 1
@@ -103,6 +105,8 @@ if args.DATASET == 'BREC_v3':
 
     # number of vertex-permuted repetitions of pairs
     NUM_RELABEL = 32
+
+    EPOCH = 20
 
 
     # part_dict: {graph generation type, range} ... note that indices have to be multiplied by two as two consecutive graphs form a pair
@@ -228,7 +232,7 @@ def evaluation(dataset, model, path, device, args):
     # T2_calculation = T2_calculations[args.DATASET]
 
     # if NUM_RELABEL is 1, we need to use the hacked T2 test as supposed by the BREC authors 
-    T2_calculation = T2_calculation_brec if NUM_RELABEL == 1 else T2_calculation_aachen
+    T2_calculation = T2_calculation_brec if NUM_RELABEL == 32 else T2_calculation_aachen
 
     time_start = time.process_time()
 

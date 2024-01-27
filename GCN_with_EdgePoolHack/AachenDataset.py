@@ -1,10 +1,8 @@
-import networkx as nx
 import numpy as np
 import torch
 import torch_geometric
-from torch_geometric.data import InMemoryDataset, extract_tar
+from torch_geometric.data import Data, InMemoryDataset, extract_tar
 from urllib.request import urlretrieve
-from torch_geometric.utils.convert import from_networkx
 import os
 from tqdm import tqdm
 
@@ -20,6 +18,7 @@ def dimacs2list(file, offset=0):
         if line[0] == 'e':
             tokens = line.split()
             edges.append([int(tokens[1])-1+offset, int(tokens[2])-1+offset])
+            edges.append([int(tokens[2])-1+offset, int(tokens[1])-1+offset])
         elif line[0] == 'c':
             # skip comments
             continue
@@ -31,15 +30,24 @@ def dimacs2list(file, offset=0):
             m = int(tokens[3])
         else:
             raise IOError(f'unknown line format: {line} in {file}')
+
+    if (n == 0) or (m == 0):
+        print(f'{file.name} has {n} nodes and {m} edges. Check, please')
     return {'n': n, 'm': m, 'edges': edges}
 
 
 def load_dimacs(file):
-    '''return a pytorch_geometric object representing the graph in file'''
+    '''return a pytorch_geometric object representing the graph in the dimacs file'''
     with open(file, 'r') as f:
         g = dimacs2list(f, 0)
-        G = nx.Graph(g['edges'])
-        return from_networkx(G)
+
+        data = dict()
+        data['edge_index'] = torch.tensor(g['edges'], dtype=torch.int64).view(2, -1)
+
+        G = Data.from_dict(data)
+        G.num_nodes = g['n']
+        
+        return G
 
 
 class AachenDataset(InMemoryDataset):
@@ -61,6 +69,15 @@ class AachenDataset(InMemoryDataset):
         'cfi-rigid-t2' : 'https://www.lics.rwth-aachen.de/global/show_document.asp?id=aaaaaaaaabcgalz',
         'cfi-rigid-z3' : 'https://www.lics.rwth-aachen.de/global/show_document.asp?id=aaaaaaaaabcgama',
         'cfi-rigid-d3' : 'https://www.lics.rwth-aachen.de/global/show_document.asp?id=aaaaaaaaabcgamx',
+    }
+
+    part_dict = {
+        'cfi-rigid-d3': (0, 92), 
+        'cfi-rigid-r2': (92, 292), 
+        'cfi-rigid-s2': (292, 544), 
+        'cfi-rigid-t2': (544, 806), 
+        'cfi-rigid-z2': (806, 994), 
+        'cfi-rigid-z3': (994, 1086)
     }
 
     def __init__(
@@ -106,15 +123,15 @@ class AachenDataset(InMemoryDataset):
         data_list = list()
         offset = 0
 
-        for f in self.datasets:
+        for f in sorted(self.datasets):
             extract_tar(os.path.join(self.raw_dir, f'{f}.tar.gz'), os.path.join(self.raw_dir, 'unzipped'))
-            print(f'converting {f}')
             counter = 0
+            print(f'converting {f}')
             for data in sorted(os.listdir(os.path.join(self.raw_dir, 'unzipped', f))):
                 data_list.append(load_dimacs(os.path.join(self.raw_dir, 'unzipped', f, data)))
                 os.remove(os.path.join(self.raw_dir, 'unzipped', f, data))
                 counter += 1
-            part_dict[f] = (offset, offset + counter)
+            part_dict[f] = (offset // 2, (offset + counter) // 2)
             offset += counter
             os.rmdir(os.path.join(self.raw_dir, 'unzipped', f))
             
@@ -133,8 +150,28 @@ class AachenDataset(InMemoryDataset):
 
 def main():
     dataset = AachenDataset()
-    print(len(dataset))
+    print('number of graphs', len(dataset))
+    ns = np.array([g.num_nodes for g in dataset])
+    ms = np.array([g.num_edges for g in dataset])
+
+    print(f'n nodes \in [{np.min(ns)}, {np.max(ns)}]\nn edges \in [{np.min(ms)}, {np.max(ms)}]')
+    print(f'mean nodes: {np.mean(ns)} +- {np.std(ns)}\nmean edges: {np.mean(ms)} +- {np.std(ms)}')
+
+    for part, range in dataset.part_dict.items():
+        print(f'{part} contains {range[1]-range[0]} pairs')
+
+
+def test_dimacs(f):
+    # for line in open(f):
+    #     print(line)
+    d = dimacs2list(open(f))
+    print('n = ', d['n'])
+    print('m = ', d['m'])
+    print(d['edges'])
+    e = load_dimacs(f)
 
 
 if __name__ == "__main__":
     main()
+    # test_dimacs('Data/AACHEN/raw/cfi-rigid-d3/cfi-rigid-d3-0180-01-1')
+

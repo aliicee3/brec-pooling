@@ -45,6 +45,7 @@ parser.add_argument("--POOLING", type=str, default="edge_pool", choices=GINandPo
 parser.add_argument("--CONV_TYPE", type=str, default="gin")
 parser.add_argument("--HIDDEN_DIM", type=int, default=16)
 parser.add_argument("--DATASET", type=str, default='BREC_v3', choices=['BREC_v3', 'AACHEN'])
+# parser.add_argument("--DATASET", type=str, default='AACHEN', choices=['BREC_v3', 'AACHEN'])
 
 # General settings.
 args = parser.parse_args()
@@ -63,14 +64,7 @@ if args.DATASET == 'AACHEN':
     NUM_RELABEL = 1
 
     # part_dict: {graph generation type, range} ... note that indices have to be multiplied by two as two consecutive graphs form a pair
-    part_dict = {
-        'cfi-rigid-z2': (0, 188), 
-        'cfi-rigid-r2': (188, 388), 
-        'cfi-rigid-s2': (388, 640), 
-        'cfi-rigid-t2': (640, 902), 
-        'cfi-rigid-z3': (902, 994), 
-        'cfi-rigid-d3': (994, 1086)
-    }
+    part_dict = AachenDataset().part_dict
 
     dataloader = AachenDataset
 
@@ -82,14 +76,7 @@ if args.DATASET == 'BREC_v3':
     NUM_RELABEL = 32
 
     # part_dict: {graph generation type, range} ... note that indices have to be multiplied by two as two consecutive graphs form a pair
-    part_dict = {
-        "Basic": (0, 60),
-        "Regular": (60, 160),
-        "Extension": (160, 260),
-        "CFI": (260, 360),
-        "4-Vertex_Condition": (360, 380),
-        "Distance_Regular": (380, 400),
-    }
+    part_dict = BRECDataset().part_dict
 
     dataloader = BRECDataset
 
@@ -202,7 +189,8 @@ def evaluation(dataset, model, path, device, args):
             return torch.mm(torch.mm(D_mean.T, inv_S), D_mean)
 
     # if NUM_RELABEL is 1, we need to use the hacked T2 test as supposed by the BREC authors 
-    T2_calculation = T2_calculation_brec if NUM_RELABEL > 1 else T2_calculation_aachen
+    # T2_calculation = T2_calculation_brec if NUM_RELABEL > 1 else T2_calculation_aachen
+    T2_calculation = T2_calculation_brec
 
     time_start = time.process_time()
 

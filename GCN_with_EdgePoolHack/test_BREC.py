@@ -198,6 +198,7 @@ def evaluation(dataset, model, path, device, args):
 
     # Do something
     cnt = 0
+    truly_identified = 0
     correct_list = []
     fail_in_reliability = 0
     loss_func = CosineEmbeddingLoss(margin=args.MARGIN)
@@ -210,6 +211,8 @@ def evaluation(dataset, model, path, device, args):
         cnt_part = 0
         fail_in_reliability_part = 0
         start = time.process_time()
+
+        truly_identified_part = 0
 
         for id in tqdm(range(part_range[0], part_range[1])):
             logger.info(f"ID: {id}")
@@ -290,6 +293,10 @@ def evaluation(dataset, model, path, device, args):
             logger.info(f"isomorphic: {isomorphic_flag} {T_square_traintest}")
             logger.info(f"reliability: {reliability_flag} {T_square_reliability}")
 
+            if isomorphic_flag and reliability_flag:
+                truly_identified_part += 1
+                truly_identified += 1
+
         end = time.process_time()
         time_cost_part = round(end - start, 2)
 
@@ -317,8 +324,8 @@ def evaluation(dataset, model, path, device, args):
     logger.info('\n\\begin{tabular}{lll}\n\\toprule\n')
     logger.info(f'\\multirow[c]{{ {len(part_result) + 1} }}{{*}}{{ {args.POOLING} }}')
     for part, cnt_part in part_result.items():
-        logger.info(f'& {part} & {cnt_part} / {part_range[1] - part_range[0]} \\\\')
-    logger.info(f'& Adjusted correct & {cnt-fail_in_reliability} / {SAMPLE_NUM} \\\\')
+        logger.info(f'& {part} & {truly_identified_part} / {part_range[1] - part_range[0]} \\\\')
+    logger.info(f'& Adjusted correct & {truly_identified} / {SAMPLE_NUM} \\\\')
     logger.info('\\midrule')
 
     logger.info('\n\\bottomrule\n\\end{tabular}\n')

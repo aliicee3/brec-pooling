@@ -28,6 +28,15 @@ class BRECDataset(InMemoryDataset):
         super().__init__(root, transform, pre_transform, pre_filter)
         self.data, self.slices = torch.load(self.processed_paths[0])
 
+    part_dict = {
+        "Basic": (0, 60),
+        "Regular": (60, 160),
+        "Extension": (160, 260),
+        "CFI": (260, 360),
+        "4-Vertex_Condition": (360, 380),
+        "Distance_Regular": (380, 400),
+    }
+
     @property
     def processed_dir(self):
         name = "processed"

@@ -324,7 +324,7 @@ def evaluation(dataset, model, path, device, args):
     logger.info('\n\\begin{tabular}{lll}\n\\toprule\n')
     logger.info(f'\\multirow[c]{{ {len(part_result) + 1} }}{{*}}{{ {args.POOLING} }}')
     for part, cnt_part in part_result.items():
-        logger.info(f'& {part} & {truly_identified_part} / {part_range[1] - part_range[0]} \\\\')
+        logger.info(f'& {part} & {truly_identified_part} / {part_dict[part][1] - part_dict[part][0]} \\\\')
     logger.info(f'& Adjusted correct & {truly_identified} / {SAMPLE_NUM} \\\\')
     logger.info('\\midrule')
 

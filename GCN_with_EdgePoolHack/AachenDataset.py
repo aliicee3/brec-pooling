@@ -42,7 +42,7 @@ def load_dimacs(file):
         g = dimacs2list(f, 0)
 
         data = dict()
-        data['edge_index'] = torch.tensor(g['edges'], dtype=torch.int64).view(2, -1)
+        data['edge_index'] = torch.tensor(g['edges'], dtype=torch.int64).T
 
         G = Data.from_dict(data)
         G.num_nodes = g['n']

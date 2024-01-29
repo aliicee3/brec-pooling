@@ -204,6 +204,7 @@ def evaluation(dataset, model, path, device, args):
     loss_func = CosineEmbeddingLoss(margin=args.MARGIN)
 
     part_result = dict()
+    true_part_result = dict()
 
     for part_name, part_range in part_dict.items():
         logger.info(f"{part_name} part starting ---")
@@ -301,6 +302,7 @@ def evaluation(dataset, model, path, device, args):
         time_cost_part = round(end - start, 2)
 
         part_result[part_name] = cnt_part
+        true_part_result[part_name] = truly_identified_part
 
         logger.info(
             f"{part_name} part costs time {time_cost_part}; Correct in {cnt_part} / {part_range[1] - part_range[0]}"
@@ -324,8 +326,8 @@ def evaluation(dataset, model, path, device, args):
     logger.info('\n\\begin{tabular}{lll}\n\\toprule\n')
     logger.info(f'\\multirow[c]{{ {len(part_result) + 1} }}{{*}}{{ {args.POOLING} }}')
     for part, cnt_part in part_result.items():
-        logger.info(f'& {part} & {truly_identified_part} / {part_dict[part][1] - part_dict[part][0]} \\\\')
-    logger.info(f'& Adjusted correct & {truly_identified} / {SAMPLE_NUM} \\\\')
+        logger.info(f'& {part} & {true_part_result[part]} / {part_dict[part][1] - part_dict[part][0]} \\\\')
+    logger.info(f'& Total & {truly_identified} / {SAMPLE_NUM} \\\\')
     logger.info('\\midrule')
 
     logger.info('\n\\bottomrule\n\\end{tabular}\n')

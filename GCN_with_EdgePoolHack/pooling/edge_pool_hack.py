@@ -66,7 +66,8 @@ class EdgePoolingHack(torch.nn.Module):
             add_to_edge_score: float = 0.5,
             mlp1=None,
             mlp2=None,
-            alpha=0.995
+            alpha=0.995,
+            merge=False
     ):
         super().__init__()
         self.in_channels = in_channels
@@ -82,6 +83,7 @@ class EdgePoolingHack(torch.nn.Module):
         self.mlp2 = mlp2
         self.alpha = alpha
         self.epsilon = 1e-5
+        self.merge = merge        
 
     @staticmethod
     def compute_edge_score_softmax(
@@ -159,53 +161,62 @@ class EdgePoolingHack(torch.nn.Module):
         x = self.mlp1(x)
         mask = torch.ones(x.size(0), dtype=torch.bool)
         new_batch = []
-        new_x = []
         edge_batch = batch[edge_index[0]]
         i = 0
-        for batch_id in range(batch.max() + 1):
-            is_in_batch = edge_batch == batch_id
-            batch_scores = edge_score[is_in_batch]
-            if len(batch_scores) > 0:
-                max_score = batch_scores.max()
-                min_score = batch_scores.min()
-                threshold = min_score + (max_score - min_score) * self.alpha - self.epsilon
-                edges_to_pool = batch_scores > threshold
-                edges_in_batch = edge_index[:, is_in_batch][:, edges_to_pool]
-                for edge in edges_in_batch.t():
-                    if not mask[edge[0]]:
-                        continue
-                        if (not mask[edge[1]]) and (cluster[edge[0]] != cluster[edge[1]]):
-                            other_cluster_id = max(cluster[edge[1]], cluster[edge[0]])
-                            reassign = cluster == other_cluster_id
-                            cluster[reassign] = min(cluster[edge[0]], cluster[edge[1]])
-                            too_high = cluster > other_cluster_id
-                            cluster[too_high] -= 1
-                            i -= 1
-                            del new_batch[other_cluster_id]
+        self.learnable = False
+        if len(edge_score) > 0:
+            for batch_id in range(batch.max() + 1):
+                is_in_batch = edge_batch == batch_id
+                batch_scores = edge_score[is_in_batch]
+                if len(batch_scores) > 0:
+                    max_score = batch_scores.max()
+                    min_score = batch_scores.min()
+                    threshold = min_score + (max_score - min_score) * self.alpha - self.epsilon
+                    edges_to_pool = batch_scores > threshold
+                    edges_in_batch = edge_index[:, is_in_batch][:, edges_to_pool]
+                    for edge in edges_in_batch.t():
+                        if not mask[edge[0]]:
+                            if self.merge:
+                                if (not mask[edge[1]]) and (cluster[edge[0]] != cluster[edge[1]]):
+                                    other_cluster_id = torch.max(cluster[edge[1]], cluster[edge[0]])
+                                    reassign = cluster == other_cluster_id
+                                    cluster[reassign] = torch.min(cluster[edge[0]], cluster[edge[1]])
+                                    too_high = cluster > other_cluster_id
+                                    cluster[too_high] -= 1
+                                    i -= 1
+                                    del new_batch[other_cluster_id]
+                                else:
+                                    cluster[edge[1]] = cluster[edge[0]]
+                                    mask[edge[1]] = False
+                            else:
+                                continue
+                        elif not mask[edge[1]]:
+                            if self.merge:
+                                cluster[edge[0]] = cluster[edge[1]]
+                                mask[edge[0]] = False
+                            else:
+                                continue
                         else:
-                            cluster[edge[1]] = cluster[edge[0]]
+                            cluster[edge[0]] = i
+                            cluster[edge[1]] = i
+                            mask[edge[0]] = False
                             mask[edge[1]] = False
-                    elif not mask[edge[1]]:
-                        continue
-                        cluster[edge[0]] = cluster[edge[1]]
-                        mask[edge[0]] = False
-                    else:
-                        cluster[edge[0]] = i
-                        cluster[edge[1]] = i
-                        mask[edge[0]] = False
-                        mask[edge[1]] = False
-                        new_batch.append(batch_id)
-                        i += 1
+                            new_batch.append(batch_id)
+                            i += 1
 
-        j = int(mask.sum())
-        cluster[mask] = torch.arange(i, i + j, device=x.device)
-        i += j
-        new_batch = torch.cat([torch.LongTensor(new_batch).to(batch.device), batch[mask]])
+            j = int(mask.sum())
+            cluster[mask] = torch.arange(i, i + j, device=x.device)
+            i += j
+            new_batch = torch.cat([torch.LongTensor(new_batch).to(batch.device), batch[mask]])
 
-        new_x = scatter(x, cluster, dim=0, dim_size=i, reduce='sum')
+            new_x = scatter(x, cluster, dim=0, dim_size=i, reduce='sum')
+            new_edge_index = coalesce(cluster[edge_index], num_nodes=new_x.size(0))
+        else:
+            new_x = x
+            new_batch = batch
+            new_edge_index = edge_index
 
         new_x = self.mlp2(new_x)
-        new_edge_index = coalesce(cluster[edge_index], num_nodes=new_x.size(0))
         return new_x, new_edge_index, new_batch, None  # unpool_info
 
     def __repr__(self) -> str:

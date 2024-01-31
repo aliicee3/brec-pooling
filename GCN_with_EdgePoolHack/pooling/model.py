@@ -19,7 +19,7 @@ class DiffPool(torch.nn.Module):
         x_dense, adj, _, _ = pyg.nn.dense_diff_pool(x_dense, adj, s)
         edge_idx = pyg.utils.dense_to_sparse(adj)[0]
         batch_count = torch.max(batch).item() + 1
-        batch = torch.arange(batch_count).repeat_interleave(self.num_clusters)
+        batch = torch.arange(batch_count).repeat_interleave(self.num_clusters).to(batch.device)
         return x_dense.view(self.num_clusters*batch_count, -1), edge_idx, batch, None
 
 class GINandPool(torch.nn.Module):

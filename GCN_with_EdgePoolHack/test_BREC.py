@@ -236,10 +236,10 @@ def evaluation(dataset, model, path, device, args):
             elif args.DATASET == 'AACHEN':
                 # we just duplicate the same graph multiple times
                 dataset_traintest = dataset[
-                    id*2, id*2+1, id*2, id*2+1
+                    id*2*6,id*2*6+6,id*2*6+1,id*2*6+7
                 ]
                 dataset_reliability = dataset[
-                    id*2, id*2, id*2, id*2
+                    id*2*6+2,id*2*6+3,id*2*6+4,id*2*6+5
                 ]
             else:
                 raise ValueError(f'unknown dataset argument: {args.DATASET}')

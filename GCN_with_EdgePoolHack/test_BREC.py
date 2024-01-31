@@ -40,7 +40,7 @@ parser.add_argument("--SEED", type=int, default=2023)
 parser.add_argument("--THRESHOLD", type=float, default=72.34)
 parser.add_argument("--MARGIN", type=float, default=0.0)
 parser.add_argument("--LOSS_THRESHOLD", type=float, default=0.2)
-parser.add_argument("--device", type=int, default=0)
+parser.add_argument("--device", type=str, default='cpu')
 parser.add_argument("--POOLING", type=str, default="edge_pool", choices=GINandPool.POOLING_OPTIONS) # edge_pool
 parser.add_argument("--CONV_TYPE", type=str, default="gin")
 parser.add_argument("--HIDDEN_DIM", type=int, default=16)

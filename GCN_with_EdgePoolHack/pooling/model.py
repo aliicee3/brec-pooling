@@ -6,9 +6,25 @@ from torch_geometric.utils import add_self_loops, degree
 from pooling.edge_pool_hack import EdgePoolingHack
 import torch_geometric as pyg
 
+class DiffPool(torch.nn.Module):
+    def __init__(self, in_channels, num_clusters):
+        super().__init__()
+        self.conv = GCNConv(in_channels, num_clusters)
+        self.num_clusters = num_clusters
+
+    def forward(self, x, edge_idx, batch):
+        x_dense, _ = pyg.utils.to_dense_batch(x, batch)
+        s, _ = pyg.utils.to_dense_batch(self.conv(x, edge_idx), batch)
+        adj = pyg.utils.to_dense_adj(edge_idx, batch)
+        x_dense, adj, _, _ = pyg.nn.dense_diff_pool(x_dense, adj, s)
+        edge_idx = pyg.utils.dense_to_sparse(adj)[0]
+        batch_count = torch.max(batch).item() + 1
+        batch = torch.arange(batch_count).repeat_interleave(self.num_clusters)
+        return x_dense.view(self.num_clusters*batch_count, -1), edge_idx, batch, None
+
 class GINandPool(torch.nn.Module):
     
-    POOLING_OPTIONS = ['edge_pool', 'edge_pool_base', 'topk', 'none', 'sag', 'asa']
+    POOLING_OPTIONS = ['edge_pool', 'edge_pool_base', 'topk', 'none', 'sag', 'asa', 'diff_pool']
     def __init__(self, in_channels, hidden_dim, out_channels, pool='topk', num_blocks=3, num_layers=4, conv_type='gin',
                  merge=False, alpha=0.9999):
         super().__init__()
@@ -48,6 +64,8 @@ class GINandPool(torch.nn.Module):
                     self.poolings.append(pyg.nn.SAGPooling(hidden_dim, ratio=0.8))
                 elif self.pool == 'asa':
                     self.poolings.append(pyg.nn.ASAPooling(hidden_dim, ratio=0.8))
+                elif self.pool == 'diff_pool':
+                    self.poolings.append(DiffPool(hidden_dim, hidden_dim))
 
         self.dec = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(),
                                        torch.nn.Linear(hidden_dim, out_channels))
@@ -61,7 +79,7 @@ class GINandPool(torch.nn.Module):
             for j in range(self.num_layers):
                 x = self.layers[i * self.num_layers + j](x, edge_idx)
             if i < self.num_blocks - 1:
-                if self.pool in ['edge_pool', 'edge_pool_base']:
+                if self.pool in ['edge_pool', 'edge_pool_base', 'diff_pool']:
                     x, edge_idx, batch, _ = self.poolings[i](x, edge_idx, batch)
                 elif self.pool in ['topk', 'sag']:
                     x, edge_idx, _, batch, _, _ = self.poolings[i](x, edge_idx, batch=batch)

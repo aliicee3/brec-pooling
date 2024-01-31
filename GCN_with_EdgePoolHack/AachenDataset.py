@@ -129,6 +129,17 @@ class AachenDataset(InMemoryDataset):
             print(f'converting {f}')
             for data in sorted(os.listdir(os.path.join(self.raw_dir, 'unzipped', f))):
                 data_list.append(load_dimacs(os.path.join(self.raw_dir, 'unzipped', f, data)))
+                num_nodes = data_list[-1].num_nodes
+                perm = torch.randperm(num_nodes)
+                data_list.append(Data(edge_index=perm[data_list[-1].edge_index], num_nodes=num_nodes))
+                perm = torch.randperm(num_nodes)
+                data_list.append(Data(edge_index=perm[data_list[-1].edge_index], num_nodes=num_nodes))
+                perm = torch.randperm(num_nodes)
+                data_list.append(Data(edge_index=perm[data_list[-1].edge_index], num_nodes=num_nodes))
+                perm = torch.randperm(num_nodes)
+                data_list.append(Data(edge_index=perm[data_list[-1].edge_index], num_nodes=num_nodes))
+                perm = torch.randperm(num_nodes)
+                data_list.append(Data(edge_index=perm[data_list[-1].edge_index], num_nodes=num_nodes))
                 os.remove(os.path.join(self.raw_dir, 'unzipped', f, data))
                 counter += 1
             part_dict[f] = (offset // 2, (offset + counter) // 2)

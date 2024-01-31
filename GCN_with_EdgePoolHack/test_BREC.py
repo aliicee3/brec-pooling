@@ -45,6 +45,8 @@ parser.add_argument("--POOLING", type=str, default="edge_pool", choices=GINandPo
 parser.add_argument("--CONV_TYPE", type=str, default="gin")
 parser.add_argument("--HIDDEN_DIM", type=int, default=16)
 parser.add_argument("--DATASET", type=str, default='BREC_v3', choices=['BREC_v3', 'AACHEN'])
+parser.add_argument("--ALPHA", type=float, default=0.9999)
+parser.add_argument("--MERGE", action='store_true')
 # parser.add_argument("--DATASET", type=str, default='AACHEN', choices=['BREC_v3', 'AACHEN'])
 
 # General settings.
@@ -119,7 +121,7 @@ def get_model(args, device, dataset):
     out_channels = args.OUTPUT_DIM
 
     # Do something
-    model = GINandPool(in_channels=in_channels, hidden_dim=hidden_dim, out_channels=out_channels, pool=args.POOLING, conv_type=args.CONV_TYPE).to(device)
+    model = GINandPool(in_channels=in_channels, hidden_dim=hidden_dim, out_channels=out_channels, pool=args.POOLING, conv_type=args.CONV_TYPE, alpha=args.ALPHA, merge=args.MERGE).to(device)
 
     time_end = time.process_time()
     time_cost = round(time_end - time_start, 2)

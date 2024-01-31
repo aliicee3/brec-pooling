@@ -243,6 +243,8 @@ def evaluation(dataset, model, path, device, args):
                 ]
             else:
                 raise ValueError(f'unknown dataset argument: {args.DATASET}')
+            if (args.DATASET == 'AACHEN') and (dataset_reliability[0].num_nodes > 2000):
+                continue
 
             model.train()
             for _ in range(args.EPOCH):

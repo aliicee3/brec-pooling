@@ -8,8 +8,9 @@ import torch_geometric as pyg
 
 class GINandPool(torch.nn.Module):
     
-    POOLING_OPTIONS = ['edge_pool', 'edge_pool_base', 'topk', 'none']
-    def __init__(self, in_channels, hidden_dim, out_channels, pool='topk', num_blocks=3, num_layers=4, conv_type='gin'):
+    POOLING_OPTIONS = ['edge_pool', 'edge_pool_base', 'topk', 'none', 'sag', 'asa']
+    def __init__(self, in_channels, hidden_dim, out_channels, pool='topk', num_blocks=3, num_layers=4, conv_type='gin',
+                 merge=False, alpha=0.9999):
         super().__init__()
         self.pool = pool
         self.num_blocks = num_blocks
@@ -38,11 +39,15 @@ class GINandPool(torch.nn.Module):
                     mlp6 = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(),
                                                torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())
                     self.poolings.append(
-                        EdgePoolingHack(in_channels=hidden_dim, mlp1=mlp5, mlp2=mlp6, alpha=0.999))
+                        EdgePoolingHack(in_channels=hidden_dim, mlp1=mlp5, mlp2=mlp6, alpha=alpha, merge=merge))
                 elif self.pool == 'edge_pool_base':
                     self.poolings.append(EdgePooling(in_channels=hidden_dim))
                 elif self.pool == 'topk':
                     self.poolings.append(TopKPooling(in_channels))
+                elif self.pool == 'sag':
+                    self.poolings.append(pyg.nn.SAGPooling(hidden_dim, ratio=0.8))
+                elif self.pool == 'asa':
+                    self.poolings.append(pyg.nn.ASAPooling(hidden_dim, ratio=0.8))
 
         self.dec = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(),
                                        torch.nn.Linear(hidden_dim, out_channels))
@@ -58,8 +63,10 @@ class GINandPool(torch.nn.Module):
             if i < self.num_blocks - 1:
                 if self.pool in ['edge_pool', 'edge_pool_base']:
                     x, edge_idx, batch, _ = self.poolings[i](x, edge_idx, batch)
-                elif self.pool == 'topk':
+                elif self.pool in ['topk', 'sag']:
                     x, edge_idx, _, batch, _, _ = self.poolings[i](x, edge_idx, batch=batch)
+                elif self.pool == 'asa':
+                    x, edge_idx, _, batch, _ = self.poolings[i](x, edge_idx, batch=batch)
 
         x = self.global_pooling(x, batch)
         x = self.dec(x)

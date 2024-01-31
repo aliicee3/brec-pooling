@@ -348,7 +348,7 @@ def evaluation(dataset, model, path, device, args):
 
 
 def main():
-    device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
+    device = torch.device(args.device)
     if args.PATH is None:
         OUT_PATH = f"result_{args.DATASET}_{args.POOLING}"
     else:

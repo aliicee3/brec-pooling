@@ -47,6 +47,7 @@ parser.add_argument("--HIDDEN_DIM", type=int, default=16)
 parser.add_argument("--DATASET", type=str, default='BREC_v3', choices=['BREC_v3', 'AACHEN'])
 parser.add_argument("--ALPHA", type=float, default=0.9999)
 parser.add_argument("--MERGE", action='store_true')
+parser.add_argument("--PATH", type=str, default=None)
 # parser.add_argument("--DATASET", type=str, default='AACHEN', choices=['BREC_v3', 'AACHEN'])
 
 # General settings.
@@ -348,8 +349,10 @@ def evaluation(dataset, model, path, device, args):
 
 def main():
     device = torch.device(f"cuda:{args.device}" if torch.cuda.is_available() else "cpu")
-
-    OUT_PATH = f"result_{args.DATASET}_{args.POOLING}"
+    if args.PATH is None:
+        OUT_PATH = f"result_{args.DATASET}_{args.POOLING}"
+    else:
+        OUT_PATH = args.PATH
     NAME = args.CONV_TYPE
     path = os.path.join(OUT_PATH, NAME)
     os.makedirs(path, exist_ok=True)

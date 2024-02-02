@@ -50,7 +50,7 @@ def load_dimacs(file):
         return G
 
 
-class AachenDataset(InMemoryDataset):
+class RIGIDDataset(InMemoryDataset):
     '''The dataset described in 
     https://www.lics.rwth-aachen.de/cms/LICS/Forschung/Publikationen/~rtok/Benchmark-Graphs/
     
@@ -160,7 +160,7 @@ class AachenDataset(InMemoryDataset):
 
 
 def main():
-    dataset = AachenDataset()
+    dataset = RIGIDDataset()
     print('number of graphs', len(dataset))
     ns = np.array([g.num_nodes for g in dataset])
     ms = np.array([g.num_edges for g in dataset])

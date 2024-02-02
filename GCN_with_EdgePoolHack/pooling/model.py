@@ -3,13 +3,16 @@ from torch.nn import Linear, Parameter, Module
 from torch_geometric.nn import GCNConv, GINConv, GATConv
 from torch_geometric.nn.pool import global_add_pool, TopKPooling, EdgePooling
 from torch_geometric.utils import add_self_loops, degree
-from pooling.edge_pool_hack import EdgePoolingHack
 import torch_geometric as pyg
+from GCN_with_EdgePoolHack.pooling.XPooling import XPooling
+
 
 class DiffPool(torch.nn.Module):
     def __init__(self, in_channels, num_clusters):
         super().__init__()
-        self.conv = GCNConv(in_channels, num_clusters)
+        mlp = torch.nn.Sequential(torch.nn.Linear(in_channels, in_channels), torch.nn.ReLU(),
+                                   torch.nn.Linear(in_channels, num_clusters))
+        self.conv = GINConv(mlp)
         self.num_clusters = num_clusters
 
     def forward(self, x, edge_idx, batch):
@@ -24,7 +27,7 @@ class DiffPool(torch.nn.Module):
 
 class GINandPool(torch.nn.Module):
     
-    POOLING_OPTIONS = ['edge_pool', 'edge_pool_base', 'topk', 'none', 'sag', 'asa', 'diff_pool']
+    POOLING_OPTIONS = ['xp', 'edge_pool', 'topk', 'none', 'sag', 'asa', 'diff_pool']
     def __init__(self, in_channels, hidden_dim, out_channels, pool='topk', num_blocks=3, num_layers=4, conv_type='gin',
                  merge=False, alpha=0.9999):
         super().__init__()
@@ -49,19 +52,19 @@ class GINandPool(torch.nn.Module):
                     self.layers.append(GATConv(hidden_dim, hidden_dim))
 
             if i < num_blocks - 1:
-                if self.pool == 'edge_pool':
+                if self.pool == 'xp':
                     mlp5 = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(),
                                                torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())
                     mlp6 = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(),
                                                torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU())
                     self.poolings.append(
-                        EdgePoolingHack(in_channels=hidden_dim, mlp1=mlp5, mlp2=mlp6, alpha=alpha, merge=merge))
-                elif self.pool == 'edge_pool_base':
+                        XPooling(in_channels=hidden_dim, mlp1=mlp5, mlp2=mlp6, alpha=alpha, merge=merge))
+                elif self.pool == 'edge_pool':
                     self.poolings.append(EdgePooling(in_channels=hidden_dim))
                 elif self.pool == 'topk':
-                    self.poolings.append(TopKPooling(in_channels))
+                    self.poolings.append(TopKPooling(in_channels, min_score=0.2))
                 elif self.pool == 'sag':
-                    self.poolings.append(pyg.nn.SAGPooling(hidden_dim, ratio=0.8))
+                    self.poolings.append(pyg.nn.SAGPooling(hidden_dim, ratio=0.8, min_score=0.2))
                 elif self.pool == 'asa':
                     self.poolings.append(pyg.nn.ASAPooling(hidden_dim, ratio=0.8))
                 elif self.pool == 'diff_pool':
@@ -79,7 +82,7 @@ class GINandPool(torch.nn.Module):
             for j in range(self.num_layers):
                 x = self.layers[i * self.num_layers + j](x, edge_idx)
             if i < self.num_blocks - 1:
-                if self.pool in ['edge_pool', 'edge_pool_base', 'diff_pool']:
+                if self.pool in ['xp', 'edge_pool', 'diff_pool']:
                     x, edge_idx, batch, _ = self.poolings[i](x, edge_idx, batch)
                 elif self.pool in ['topk', 'sag']:
                     x, edge_idx, _, batch, _, _ = self.poolings[i](x, edge_idx, batch=batch)

@@ -46,7 +46,7 @@ parser.add_argument("--CONV_TYPE", type=str, default="gin")
 parser.add_argument("--HIDDEN_DIM", type=int, default=16)
 parser.add_argument("--DATASET", type=str, default='BREC_v3', choices=['BREC_v3', 'AACHEN'])
 parser.add_argument("--ALPHA", type=float, default=0.9999)
-parser.add_argument("--MERGE", action='store_true')
+parser.add_argument("--MERGE", type=str, default='single', choices=['max', 'single', 'combine'])
 parser.add_argument("--PATH", type=str, default=None)
 # parser.add_argument("--DATASET", type=str, default='AACHEN', choices=['BREC_v3', 'AACHEN'])
 
@@ -64,7 +64,7 @@ if args.DATASET == 'AACHEN':
 
     # number of vertex-permuted repetitions of pairs
     # if this number is 1, we need to use the hacked T2 test as supposed by the BREC authors
-    NUM_RELABEL = 1
+    NUM_RELABEL = 6
 
     # part_dict: {graph generation type, range} ... note that indices have to be multiplied by two as two consecutive graphs form a pair
     part_dict = AachenDataset().part_dict

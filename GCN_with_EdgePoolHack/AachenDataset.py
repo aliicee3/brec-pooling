@@ -72,8 +72,8 @@ class AachenDataset(InMemoryDataset):
     }
 
     part_dict = {
-        'cfi-rigid-d3': (0, 92), 
-        'cfi-rigid-r2': (92, 292), 
+        'cfi-rigid-d3': (0, 92),
+        'cfi-rigid-r2': (92, 292),
         'cfi-rigid-s2': (292, 544), 
         'cfi-rigid-t2': (544, 806), 
         'cfi-rigid-z2': (806, 994), 

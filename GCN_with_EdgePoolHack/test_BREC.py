@@ -5,7 +5,6 @@
 #   3. model construction;
 #   4. evaluation
 
-
 import numpy as np
 import torch
 import torch_geometric
@@ -13,18 +12,12 @@ import torch_geometric.loader
 from loguru import logger
 import time
 from BRECDataset_v3 import BRECDataset
-from AachenDataset import AachenDataset
+from RIGIDDataset import RIGIDDataset
 from tqdm import tqdm
 import os
 from torch.nn import CosineEmbeddingLoss
 import argparse
 from pooling.model import GINandPool
-
-# global_var = globals().copy()
-# HYPERPARAM_DICT = dict()
-# for k, v in global_var.items():
-#     if isinstance(v, int) or isinstance(v, float):
-#         HYPERPARAM_DICT[k] = v
 
 parser = argparse.ArgumentParser(description="BREC Test")
 
@@ -44,11 +37,11 @@ parser.add_argument("--device", type=str, default='cpu')
 parser.add_argument("--POOLING", type=str, default="edge_pool", choices=GINandPool.POOLING_OPTIONS) # edge_pool
 parser.add_argument("--CONV_TYPE", type=str, default="gin")
 parser.add_argument("--HIDDEN_DIM", type=int, default=16)
-parser.add_argument("--DATASET", type=str, default='BREC_v3', choices=['BREC_v3', 'AACHEN'])
+parser.add_argument("--DATASET", type=str, default='BREC_v3', choices=['BREC_v3', 'RIGID'])
 parser.add_argument("--ALPHA", type=float, default=0.9999)
 parser.add_argument("--MERGE", type=str, default='single', choices=['max', 'single', 'combine'])
 parser.add_argument("--PATH", type=str, default=None)
-# parser.add_argument("--DATASET", type=str, default='AACHEN', choices=['BREC_v3', 'AACHEN'])
+# parser.add_argument("--DATASET", type=str, default='RIGID', choices=['BREC_v3', 'RIGID'])
 
 # General settings.
 args = parser.parse_args()
@@ -58,7 +51,7 @@ torch_geometric.seed_everything(args.SEED)
 torch.backends.cudnn.deterministic = True
 # torch.use_deterministic_algorithms(True)
 
-if args.DATASET == 'AACHEN': 
+if args.DATASET == 'RIGID': 
     # number of pairs in the dataset
     SAMPLE_NUM = 1086
 
@@ -67,9 +60,9 @@ if args.DATASET == 'AACHEN':
     NUM_RELABEL = 6
 
     # part_dict: {graph generation type, range} ... note that indices have to be multiplied by two as two consecutive graphs form a pair
-    part_dict = AachenDataset().part_dict
+    part_dict = RIGIDDataset().part_dict
 
-    dataloader = AachenDataset
+    dataloader = RIGIDDataset
 
 if args.DATASET == 'BREC_v3':
     # number of pairs in the dataset
@@ -143,7 +136,7 @@ def evaluation(dataset, model, path, device, args):
     # S_epsilon = torch.diag(
     #     torch.full(size=(OUTPUT_DIM, 1), fill_value=EPSILON_MATRIX).reshape(-1)
     # ).to(device)
-    def T2_calculation_brec(dataset, log_flag=False):
+    def T2_calculation(dataset, log_flag=False):
         with torch.no_grad():
             loader = torch_geometric.loader.DataLoader(dataset, batch_size=args.BATCH_SIZE)
             pred_0_list = []
@@ -164,36 +157,6 @@ def evaluation(dataset, model, path, device, args):
             # If you want to test on some simple graphs without permutation outputting the exact same embedding, please use inv_S with S_epsilon.
             # inv_S = torch.linalg.pinv(S + S_epsilon)
             return torch.mm(torch.mm(D_mean.T, inv_S), D_mean)
-
-    # If you want to test on some simple graphs without permutation outputting the exact same embedding, please use S_epsilon.
-    S_epsilon = torch.diag(
-        torch.full(size=(args.OUTPUT_DIM, 1), fill_value=args.EPSILON_MATRIX).reshape(-1)
-    ).to(torch.device(device))
-    def T2_calculation_aachen(dataset, log_flag=False):
-        with torch.no_grad():
-            loader = torch_geometric.loader.DataLoader(dataset, batch_size=args.BATCH_SIZE)
-            pred_0_list = []
-            pred_1_list = []
-            for data in loader:
-                pred = model(data.to(device)).detach()
-                pred_0_list.extend(pred[0::2])
-                pred_1_list.extend(pred[1::2])
-            X = torch.cat([x.reshape(1, -1) for x in pred_0_list], dim=0).T
-            Y = torch.cat([x.reshape(1, -1) for x in pred_1_list], dim=0).T
-            if log_flag:
-                logger.info(f"X_mean = {torch.mean(X, dim=1)}")
-                logger.info(f"Y_mean = {torch.mean(Y, dim=1)}")
-            D = X - Y
-            D_mean = torch.mean(D, dim=1).reshape(-1, 1)
-            S = torch.cov(D)
-            # inv_S = torch.linalg.pinv(S)
-            # If you want to test on some simple graphs without permutation outputting the exact same embedding, please use inv_S with S_epsilon.
-            inv_S = torch.linalg.pinv(S + S_epsilon)
-            return torch.mm(torch.mm(D_mean.T, inv_S), D_mean)
-
-    # if NUM_RELABEL is 1, we need to use the hacked T2 test as supposed by the BREC authors 
-    # T2_calculation = T2_calculation_brec if NUM_RELABEL > 1 else T2_calculation_aachen
-    T2_calculation = T2_calculation_brec
 
     time_start = time.process_time()
 
@@ -236,7 +199,7 @@ def evaluation(dataset, model, path, device, args):
                 dataset_reliability = dataset[
                     v3 : v4 
                 ]
-            elif args.DATASET == 'AACHEN':
+            elif args.DATASET == 'RIGID':
                 # we just duplicate the same graph multiple times
                 dataset_traintest = dataset[
                     id*2*6,id*2*6+6,id*2*6+1,id*2*6+7
@@ -246,7 +209,7 @@ def evaluation(dataset, model, path, device, args):
                 ]
             else:
                 raise ValueError(f'unknown dataset argument: {args.DATASET}')
-            if (args.DATASET == 'AACHEN') and (dataset_reliability[0].num_nodes > 2000):
+            if (args.DATASET == 'RIGID') and (dataset_reliability[0].num_nodes > 2000):
                 continue
 
             model.train()

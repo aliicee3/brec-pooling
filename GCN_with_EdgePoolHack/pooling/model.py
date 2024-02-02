@@ -4,7 +4,7 @@ from torch_geometric.nn import GCNConv, GINConv, GATConv
 from torch_geometric.nn.pool import global_add_pool, TopKPooling, EdgePooling
 from torch_geometric.utils import add_self_loops, degree
 import torch_geometric as pyg
-from GCN_with_EdgePoolHack.pooling.XPooling import XPooling
+from pooling.XPooling import XPooling
 
 
 class DiffPool(torch.nn.Module):

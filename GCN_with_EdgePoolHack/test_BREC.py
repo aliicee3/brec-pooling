@@ -60,7 +60,7 @@ if args.DATASET == 'RIGID':
     NUM_RELABEL = 6
 
     # part_dict: {graph generation type, range} ... note that indices have to be multiplied by two as two consecutive graphs form a pair
-    part_dict = RIGIDDataset().part_dict
+    part_dict = RIGIDDataset.part_dict
 
     dataloader = RIGIDDataset
 
@@ -72,7 +72,7 @@ if args.DATASET == 'BREC_v3':
     NUM_RELABEL = 32
 
     # part_dict: {graph generation type, range} ... note that indices have to be multiplied by two as two consecutive graphs form a pair
-    part_dict = BRECDataset().part_dict
+    part_dict = BRECDataset.part_dict
 
     dataloader = BRECDataset
 

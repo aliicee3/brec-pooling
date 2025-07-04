@@ -5,7 +5,9 @@ from torch_geometric.nn.pool import global_add_pool, TopKPooling, EdgePooling
 from torch_geometric.utils import add_self_loops, degree
 import torch_geometric as pyg
 from pooling.XPooling import XPooling
-
+from pooling.ClusterPooling import ClusterPooling
+from pooling.cliquepooling import CliquePooling
+from pooling.curvpooling import CurvPooling
 
 class DiffPool(torch.nn.Module):
     def __init__(self, in_channels, num_clusters):
@@ -27,7 +29,7 @@ class DiffPool(torch.nn.Module):
 
 class GINandPool(torch.nn.Module):
     
-    POOLING_OPTIONS = ['xp', 'edge_pool', 'topk', 'none', 'sag', 'asa', 'diff_pool']
+    POOLING_OPTIONS = ['xp', 'edge_pool', 'topk', 'none', 'sag', 'asa', 'diff_pool', 'cluster', 'clique', 'curv']
     def __init__(self, in_channels, hidden_dim, out_channels, pool='topk', num_blocks=3, num_layers=4, conv_type='gin',
                  merge=False, alpha=0.9999):
         super().__init__()
@@ -69,6 +71,12 @@ class GINandPool(torch.nn.Module):
                     self.poolings.append(pyg.nn.ASAPooling(hidden_dim, ratio=0.8))
                 elif self.pool == 'diff_pool':
                     self.poolings.append(DiffPool(hidden_dim, hidden_dim))
+                elif self.pool == 'cluster':
+                    self.poolings.append(ClusterPooling(hidden_dim))
+                elif self.pool == 'clique':
+                    self.poolings.append(CliquePooling())
+                elif self.pool == 'curv':
+                    self.poolings.append(CurvPooling())
 
         self.dec = torch.nn.Sequential(torch.nn.Linear(hidden_dim, hidden_dim), torch.nn.ReLU(),
                                        torch.nn.Linear(hidden_dim, out_channels))
@@ -82,7 +90,7 @@ class GINandPool(torch.nn.Module):
             for j in range(self.num_layers):
                 x = self.layers[i * self.num_layers + j](x, edge_idx)
             if i < self.num_blocks - 1:
-                if self.pool in ['xp', 'edge_pool', 'diff_pool']:
+                if self.pool in ['xp', 'edge_pool', 'diff_pool', 'cluster', 'clique', 'curv']:
                     x, edge_idx, batch, _ = self.poolings[i](x, edge_idx, batch)
                 elif self.pool in ['topk', 'sag']:
                     x, edge_idx, _, batch, _, _ = self.poolings[i](x, edge_idx, batch=batch)

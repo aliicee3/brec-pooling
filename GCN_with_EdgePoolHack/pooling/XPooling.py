@@ -2,10 +2,11 @@ from typing import Callable, List, NamedTuple, Optional, Tuple
 
 import torch
 import torch.nn.functional as F
+import torch_geometric
 from torch import Tensor
 
 from torch_geometric.utils import coalesce, scatter, softmax, remove_self_loops, cumsum
-
+import torch_scatter
 
 class UnpoolInfo(NamedTuple):
     edge_index: Tensor
@@ -45,7 +46,7 @@ class XPooling(torch.nn.Module):
             in_channels: int,
             edge_score_method: Optional[Callable] = None,
             dropout: Optional[float] = 0.0,
-            add_to_edge_score: float = 0.5,
+            add_to_edge_score: float = 0.0,
             mlp1=None,
             mlp2=None,
             alpha=0.995,
@@ -57,15 +58,9 @@ class XPooling(torch.nn.Module):
             edge_score_method = self.compute_edge_score_sigmoid
         self.compute_edge_score = edge_score_method
         self.add_to_edge_score = add_to_edge_score
-        self.dropout = dropout
-        self.lin = torch.nn.Sequential(torch.nn.Linear(2 * in_channels, 2 * in_channels), torch.nn.ReLU(),
-                                       torch.nn.Linear(2 * in_channels, 1))
-
-        self.mlp1 = mlp1
-        self.mlp2 = mlp2
-        self.alpha = alpha
-        self.epsilon = 1e-5
-        self.merge = merge        
+        self.lin = torch.nn.Linear(2 * in_channels, 1)
+        #self.lin.weight.data.fill_(1)
+        #self.lin.bias.data.fill_(0)
 
     @staticmethod
     def compute_edge_score_sigmoid(
@@ -100,10 +95,11 @@ class XPooling(torch.nn.Module):
               consumed by :func:`EdgePooling.unpool` for unpooling.
         """
         edge_index, _ = remove_self_loops(edge_index)
+        #torch_geometric.seed_everything(0)
+        #x = torch.randn_like(x)
         if scores is None:
             e = torch.cat([x[edge_index[0]], x[edge_index[1]]], dim=-1)
             e = self.lin(e).view(-1)
-            e = F.dropout(e, p=self.dropout, training=self.training)
             e = self.compute_edge_score(e, edge_index, x.size(0))
             e = e + self.add_to_edge_score
         else:
@@ -122,89 +118,29 @@ class XPooling(torch.nn.Module):
             edge_score: Tensor,
     ) -> Tuple[Tensor, Tensor, Tensor, UnpoolInfo]:
         cluster = torch.empty_like(batch)
-        x = self.mlp1(x)
         mask = torch.ones(x.size(0), dtype=torch.bool)
         new_batch = []
         edge_batch = batch[edge_index[0]]
         i = 0
         if len(edge_score) > 0:
-            if self.merge == 'max':
-                node_mask = torch.ones(x.size(0), dtype=torch.bool)
-                edge_batch = batch[edge_index[0]]
-                num_edges = scatter(edge_batch.new_ones(edge_score.size(0)), edge_batch, reduce='sum')
-                k = num_edges.new_full((num_edges.size(0),), 1)
-                edge_scores, edge_scores_perm = torch.sort(edge_score.view(-1), descending=True)
-                edge_batch_sorted = edge_batch[edge_scores_perm]
-                edge_batch_sorted, edge_batch_perm = torch.sort(edge_batch_sorted, descending=False, stable=True)
-                arange = torch.arange(edge_scores.size(0), dtype=torch.long, device=x.device)
-                ptr = cumsum(num_edges)
-                edge_batched_arange = arange - ptr[edge_batch_sorted]
-                mask = edge_batched_arange < k[edge_batch_sorted]
-                edge_idxs = edge_scores_perm[edge_batch_perm[mask]]
-                x_new = x[edge_index[0, edge_idxs]] + x[edge_index[1, edge_idxs]]
-                node_mask[edge_index[:, edge_idxs].view(-1)] = False
-                batch_new = edge_batch[edge_idxs]
-                new_x = torch.cat([x_new, x[node_mask]], dim=0)
-                new_batch = torch.cat([batch_new, batch[node_mask]])
-                batch_nums = torch.arange(0, len(edge_idxs), device=cluster.device)
-                cluster[edge_index[0, edge_idxs]] = batch_nums
-                cluster[edge_index[1, edge_idxs]] = batch_nums
-                cluster[node_mask] = torch.arange(len(edge_idxs), node_mask.sum() + len(edge_idxs), device=cluster.device)
-
-                new_edge_index = coalesce(cluster[edge_index], num_nodes=new_x.size(0))
-            else:
-                for batch_id in range(batch.max() + 1):
-                    is_in_batch = edge_batch == batch_id
-                    batch_scores = edge_score[is_in_batch]
-                    if len(batch_scores) > 0:
-                        max_score = batch_scores.max()
-                        min_score = batch_scores.min()
-                        threshold = min_score + (max_score - min_score) * self.alpha - self.epsilon
-                        edges_to_pool = batch_scores > threshold
-                        edges_in_batch = edge_index[:, is_in_batch][:, edges_to_pool]
-                        for edge in edges_in_batch.t():
-                            if not mask[edge[0]]:
-                                if self.merge == 'combine':
-                                    if (not mask[edge[1]]) and (cluster[edge[0]] != cluster[edge[1]]):
-                                        other_cluster_id = torch.max(cluster[edge[1]], cluster[edge[0]])
-                                        reassign = cluster == other_cluster_id
-                                        cluster[reassign] = torch.min(cluster[edge[0]], cluster[edge[1]])
-                                        too_high = cluster > other_cluster_id
-                                        cluster[too_high] -= 1
-                                        i -= 1
-                                        del new_batch[other_cluster_id]
-                                    else:
-                                        cluster[edge[1]] = cluster[edge[0]]
-                                        mask[edge[1]] = False
-                                else:
-                                    continue
-                            elif not mask[edge[1]]:
-                                if self.merge == 'combine':
-                                    cluster[edge[0]] = cluster[edge[1]]
-                                    mask[edge[0]] = False
-                                else:
-                                    continue
-                            else:
-                                cluster[edge[0]] = i
-                                cluster[edge[1]] = i
-                                mask[edge[0]] = False
-                                mask[edge[1]] = False
-                                new_batch.append(batch_id)
-                                i += 1
-
-                j = int(mask.sum())
-                cluster[mask] = torch.arange(i, i + j, device=x.device)
-                i += j
-                new_batch = torch.cat([torch.LongTensor(new_batch).to(batch.device), batch[mask]])
-
-                new_x = scatter(x, cluster, dim=0, dim_size=i, reduce='sum')
-                new_edge_index = coalesce(cluster[edge_index], num_nodes=new_x.size(0))
+            node_mask = torch.ones(x.size(0), dtype=torch.bool)
+            edge_batch = batch[edge_index[0]]
+            edge_idxs = torch_scatter.scatter_max(edge_score, edge_batch, dim=0)[1]
+            x_new = x[edge_index[0, edge_idxs]] + x[edge_index[1, edge_idxs]]
+            node_mask[edge_index[:, edge_idxs].view(-1)] = False
+            batch_new = edge_batch[edge_idxs]
+            new_x = torch.cat([x_new, x[node_mask]], dim=0)
+            new_batch = torch.cat([batch_new, batch[node_mask]])
+            batch_nums = torch.arange(0, len(edge_idxs), device=cluster.device)
+            cluster[edge_index[0, edge_idxs]] = batch_nums
+            cluster[edge_index[1, edge_idxs]] = batch_nums
+            cluster[node_mask] = torch.arange(len(edge_idxs), node_mask.sum() + len(edge_idxs), device=cluster.device)
+            new_edge_index = coalesce(cluster[edge_index], num_nodes=new_x.size(0))
         else:
             new_x = x
             new_batch = batch
             new_edge_index = edge_index
 
-        new_x = self.mlp2(new_x)
         return new_x, new_edge_index, new_batch, None
 
     def __repr__(self) -> str:

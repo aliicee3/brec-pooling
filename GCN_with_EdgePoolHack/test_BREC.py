@@ -27,14 +27,16 @@ parser.add_argument("--P_NORM", type=str, default="2", choices=['2', 'inf'])
 parser.add_argument("--EPOCH", type=int, default=20)
 parser.add_argument("--LEARNING_RATE", type=float, default=1e-4)
 parser.add_argument("--BATCH_SIZE", type=int, default=16)
-parser.add_argument("--WEIGHT_DECAY", type=float, default=0) #1e-4
+parser.add_argument("--WEIGHT_DECAY", type=float, default=0)  # 1e-4
 parser.add_argument("--OUTPUT_DIM", type=int, default=16)
+parser.add_argument("--NUM_BLOCKS", type=int, default=4)
+parser.add_argument("--NUM_LAYERS", type=int, default=4)
 parser.add_argument("--SEED", type=int, default=2023)
 parser.add_argument("--THRESHOLD", type=float, default=72.34)
 parser.add_argument("--MARGIN", type=float, default=0.0)
 parser.add_argument("--LOSS_THRESHOLD", type=float, default=0.2)
 parser.add_argument("--device", type=str, default='cpu')
-parser.add_argument("--POOLING", type=str, default="edge_pool", choices=GINandPool.POOLING_OPTIONS) # edge_pool
+parser.add_argument("--POOLING", type=str, default="edge_pool", choices=GINandPool.POOLING_OPTIONS)  # edge_pool
 parser.add_argument("--CONV_TYPE", type=str, default="gin")
 parser.add_argument("--HIDDEN_DIM", type=int, default=16)
 parser.add_argument("--DATASET", type=str, default='BREC_v3', choices=['BREC_v3', 'RIGID'])
@@ -47,11 +49,9 @@ parser.add_argument("--PATH", type=str, default=None)
 args = parser.parse_args()
 
 args.P_NORM = 2 if args.P_NORM == "2" else torch.inf
-torch_geometric.seed_everything(args.SEED)
-torch.backends.cudnn.deterministic = True
 # torch.use_deterministic_algorithms(True)
 
-if args.DATASET == 'RIGID': 
+if args.DATASET == 'RIGID':
     # number of pairs in the dataset
     SAMPLE_NUM = 1086
 
@@ -72,7 +72,7 @@ if args.DATASET == 'BREC_v3':
     NUM_RELABEL = 32
 
     # part_dict: {graph generation type, range} ... note that indices have to be multiplied by two as two consecutive graphs form a pair
-    part_dict = BRECDataset.part_dict
+    part_dict = BRECDataset().part_dict
 
     dataloader = BRECDataset
 
@@ -115,7 +115,9 @@ def get_model(args, device, dataset):
     out_channels = args.OUTPUT_DIM
 
     # Do something
-    model = GINandPool(in_channels=in_channels, hidden_dim=hidden_dim, out_channels=out_channels, pool=args.POOLING, conv_type=args.CONV_TYPE, alpha=args.ALPHA, merge=args.MERGE).to(device)
+    model = GINandPool(in_channels=in_channels, hidden_dim=hidden_dim, out_channels=out_channels,
+                       num_layers=args.NUM_LAYERS, num_blocks=args.NUM_BLOCKS, pool=args.POOLING,
+                       conv_type=args.CONV_TYPE, alpha=args.ALPHA, merge=args.MERGE).to(device)
 
     time_end = time.process_time()
     time_cost = round(time_end - time_start, 2)
@@ -123,15 +125,25 @@ def get_model(args, device, dataset):
     return model
 
 
+import signal
+import functools
+
+
+def time_limited(model, data):
+    output = model(data)
+    return output
+
+
 # Stage 4: evaluation
 # Here is for evaluation.
 def evaluation(dataset, model, path, device, args):
     '''
-        When testing on BREC, even on the same graph, the output embedding may be different, 
+        When testing on BREC, even on the same graph, the output embedding may be different,
         because numerical precision problem occur on large graphs, and even the same graph is permuted.
         However, if you want to test on some simple graphs without permutation outputting the exact same embedding,
         some modification is needed to avoid computing the inverse matrix of a zero matrix.
     '''
+
     # If you want to test on some simple graphs without permutation outputting the exact same embedding, please use S_epsilon.
     # S_epsilon = torch.diag(
     #     torch.full(size=(OUTPUT_DIM, 1), fill_value=EPSILON_MATRIX).reshape(-1)
@@ -153,7 +165,10 @@ def evaluation(dataset, model, path, device, args):
             D = X - Y
             D_mean = torch.mean(D, dim=1).reshape(-1, 1)
             S = torch.cov(D)
-            inv_S = torch.linalg.pinv(S)
+            try:
+                inv_S = torch.linalg.pinv(S)
+            except torch._C._LinAlgError:
+                return torch.tensor(0)
             # If you want to test on some simple graphs without permutation outputting the exact same embedding, please use inv_S with S_epsilon.
             # inv_S = torch.linalg.pinv(S + S_epsilon)
             return torch.mm(torch.mm(D_mean.T, inv_S), D_mean)
@@ -174,10 +189,9 @@ def evaluation(dataset, model, path, device, args):
 
     for part_name, part_range in part_dict.items():
         logger.info(f"{part_name} part starting ---")
-
+        start = time.time()
         cnt_part = 0
         fail_in_reliability_part = 0
-        start = time.process_time()
 
         truly_identified_part = 0
 
@@ -192,20 +206,20 @@ def evaluation(dataset, model, path, device, args):
                 v1 = id * NUM_RELABEL * 2
                 v2 = (id + 1) * NUM_RELABEL * 2
                 dataset_traintest = dataset[
-                    v1 : v2
-                ]
+                                    v1: v2
+                                    ]
                 v3 = (id + SAMPLE_NUM) * NUM_RELABEL * 2
                 v4 = (id + SAMPLE_NUM + 1) * NUM_RELABEL * 2
                 dataset_reliability = dataset[
-                    v3 : v4 
-                ]
+                                      v3: v4
+                                      ]
             elif args.DATASET == 'RIGID':
                 # we just duplicate the same graph multiple times
                 dataset_traintest = dataset[
-                    id*2*6,id*2*6+6,id*2*6+1,id*2*6+7
+                    id * 2 * 6, id * 2 * 6 + 6, id * 2 * 6 + 1, id * 2 * 6 + 7
                 ]
                 dataset_reliability = dataset[
-                    id*2*6+2,id*2*6+3,id*2*6+4,id*2*6+5
+                    id * 2 * 6 + 2, id * 2 * 6 + 3, id * 2 * 6 + 4, id * 2 * 6 + 5
                 ]
             else:
                 raise ValueError(f'unknown dataset argument: {args.DATASET}')
@@ -213,6 +227,7 @@ def evaluation(dataset, model, path, device, args):
                 continue
 
             model.train()
+            failed = False
             for _ in range(args.EPOCH):
                 traintest_loader = torch_geometric.loader.DataLoader(
                     dataset_traintest, batch_size=args.BATCH_SIZE
@@ -220,7 +235,10 @@ def evaluation(dataset, model, path, device, args):
                 loss_all = 0
                 for data in traintest_loader:
                     optimizer.zero_grad()
-                    pred = model(data.to(device))
+                    pred = time_limited(model, data.to(device))
+                    if pred is None:
+                        failed = True
+                        break
                     p1 = pred[0::2]
                     p2 = pred[1::2]
                     loss = loss_func(
@@ -231,6 +249,9 @@ def evaluation(dataset, model, path, device, args):
                     loss.backward()
                     optimizer.step()
                     loss_all += len(pred) / 2 * loss.item()
+                if failed:
+                    T_square_traintest, T_square_reliability = 0, 0
+                    break
                 loss_all /= NUM_RELABEL
                 logger.info(f"Loss: {loss_all}")
                 if loss_all < args.LOSS_THRESHOLD:
@@ -239,17 +260,18 @@ def evaluation(dataset, model, path, device, args):
                 scheduler.step(loss_all)
 
             model.eval()
-            T_square_traintest = T2_calculation(dataset_traintest, True)
-            T_square_reliability = T2_calculation(dataset_reliability, True)
-
             isomorphic_flag = False
             reliability_flag = False
-            if T_square_traintest > args.THRESHOLD and not torch.isclose(
-                T_square_traintest, T_square_reliability, atol=args.EPSILON_CMP
-            ):
-                isomorphic_flag = True
-            if T_square_reliability < args.THRESHOLD:
-                reliability_flag = True
+            if not failed:
+                T_square_traintest = T2_calculation(dataset_traintest, True)
+                T_square_reliability = T2_calculation(dataset_reliability, True)
+
+                if T_square_traintest > args.THRESHOLD and not torch.isclose(
+                        T_square_traintest, T_square_reliability, atol=args.EPSILON_CMP
+                ):
+                    isomorphic_flag = True
+                if T_square_reliability < args.THRESHOLD:
+                    reliability_flag = True
 
             if isomorphic_flag:
                 cnt += 1
@@ -266,7 +288,7 @@ def evaluation(dataset, model, path, device, args):
                 truly_identified_part += 1
                 truly_identified += 1
 
-        end = time.process_time()
+        end = time.time()
         time_cost_part = round(end - start, 2)
 
         part_result[part_name] = cnt_part
@@ -300,37 +322,55 @@ def evaluation(dataset, model, path, device, args):
 
     logger.info('\n\\bottomrule\n\\end{tabular}\n')
 
-
     logger.add(f"{path}/result_show.txt", format="{message}", encoding="utf-8")
     logger.info(
         "Real_correct\tCorrect\tFail\tOUTPUT_DIM\tBATCH_SIZE\tLEARNING_RATE\tWEIGHT_DECAY\tSEED"
     )
     logger.info(
-        f"{cnt-fail_in_reliability}\t{cnt}\t{fail_in_reliability}\t{args.OUTPUT_DIM}\t{args.BATCH_SIZE}\t{args.LEARNING_RATE}\t{args.WEIGHT_DECAY}\t{args.SEED}"
+        f"{cnt - fail_in_reliability}\t{cnt}\t{fail_in_reliability}\t{args.OUTPUT_DIM}\t{args.BATCH_SIZE}\t{args.LEARNING_RATE}\t{args.WEIGHT_DECAY}\t{args.SEED}"
     )
+    regular_score = true_part_result['Regular'] + true_part_result['Distance_Regular'] + true_part_result[
+        '4-Vertex_Condition']
+
+    return cnt - fail_in_reliability, true_part_result['Basic'], regular_score, true_part_result['Extension'], \
+    true_part_result['CFI']
 
 
 def main():
-    device = torch.device(args.device)
-    if args.PATH is None:
-        OUT_PATH = f"result_{args.DATASET}_{args.POOLING}"
-    else:
-        OUT_PATH = args.PATH
-    NAME = args.CONV_TYPE
-    path = os.path.join(OUT_PATH, NAME)
-    os.makedirs(path, exist_ok=True)
+    scores, basic_scores, regular_scores, ext_scores, cfi_scores = [], [], [], [], []
+    for i in range(10):
+        torch_geometric.seed_everything(i)
+        torch.backends.cudnn.deterministic = True
 
-    logger.remove(handler_id=None)
-    LOG_NAME = os.path.join(path, "log.txt")
-    logger.add(LOG_NAME, rotation="5MB")
-    logger.info(args)
+        device = torch.device(args.device)
+        if args.PATH is None:
+            OUT_PATH = f"result_{args.DATASET}_{args.POOLING}"
+        else:
+            OUT_PATH = args.PATH
+        NAME = args.CONV_TYPE
+        path = os.path.join(OUT_PATH, NAME)
+        os.makedirs(path, exist_ok=True)
 
-    dataset_name = args.DATASET
+        logger.remove(handler_id=None)
+        LOG_NAME = os.path.join(path, "log.txt")
+        logger.add(LOG_NAME, rotation="5MB")
+        logger.info(args)
 
-    pre_calculation()
-    dataset = get_dataset(name=dataset_name, device=device)
-    model = get_model(args, device, dataset)
-    evaluation(dataset, model, OUT_PATH, device, args)
+        dataset_name = args.DATASET
+
+        pre_calculation()
+        dataset = get_dataset(name=dataset_name, device=device)
+        model = get_model(args, device, dataset)
+        score, basic_score, regular_score, ext_score, cfi_score = evaluation(dataset, model, OUT_PATH, device, args)
+        scores.append(score)
+        basic_scores.append(basic_score)
+        regular_scores.append(regular_score)
+        ext_scores.append(ext_score)
+        cfi_scores.append(cfi_score)
+        # Log average scores and standard deviations
+        logger.add(f"{path}/final.txt", format="{message}", encoding="utf-8")
+    logger.info(
+        f'Final max results: {np.max(basic_scores)+np.max(regular_scores)+np.max(ext_scores)+np.max(cfi_scores)}, {np.max(basic_scores)}, {np.max(regular_scores)}, {np.max(ext_scores)}, {np.max(cfi_scores)}')
 
 
 if __name__ == "__main__":

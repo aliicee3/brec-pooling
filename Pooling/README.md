@@ -19,7 +19,7 @@ This implementation extends the [BREC framework](https://github.com/GraphPKU/BRE
 ├── run.sh                       # Script to run the experiments
 ├── test_BREC.py                 # Evaluation pipeline for BREC dataset
 ├── BRECDataset_v3.py            # Updated wrapper for BREC v3 dataset
-├── Data/                        # Includes the dataset
+├── Data/                        # Include the dataset here
 └── pooling/                     # Pooling methods and model implementations
     ├── XPooling.py              # XP: our proposed minimal expressivity-increasing pooling
     ├── cliquepooling.py         # Clique-based pooling (CliquePool)
@@ -38,7 +38,7 @@ This implementation extends the [BREC framework](https://github.com/GraphPKU/BRE
 
 2. Follow the [BREC framework instructions](https://github.com/GraphPKU/BREC) to install dependencies and download the dataset.
 
-3. Make sure the `BREC_v3` dataset is available in the expected location.
+3. Make sure the `BREC_v3` dataset is available in the expected location (Pooling/Data/raw/).
 
 ## Running Experiments
 

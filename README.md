@@ -1,63 +1,100 @@
-# Towards Better Evaluation of GNN Expressiveness with BREC Dataset
+# Expressive Pooling for Graph Neural Networks
 
-## About
+This repository contains the official implementation of our paper:
 
-**BREC**  is a new dataset for GNN expressiveness comparison.
-It addresses the limitations of previous datasets, including difficulty, granularity, and scale, by incorporating
-400 pairs of various graphs in four categories (Basic, Regular, Extension, CFI).
-The graphs are organized pair-wise, where each pair is tested individually to return whether a GNN can distinguish them. We propose a new evaluation method, **RPC** (Reliable Paired Comparisons), with a contrastive training framework.
+**"Expressive Pooling for Graph Neural Networks"**
+Published in *Transactions on Machine Learning Research (2025)*
+[OpenReview link](https://openreview.net/forum?id=xGADInGWMt)
 
-We also provide a Pypi package for simple usage. Please refer to [Pypi package](https://pypi.org/project/brec-iclr2024/).
+Pooling layers are widely used in graph-level tasks to reduce graph size and capture hierarchical structure. Our work provides the **first formal proof** that under specific conditions, pooling operations which **decrease the size of the computational graphs** can **increase the expressive power** of Message Passing Neural Networks (MPNNs) — without modifying the message-passing scheme itself. We identify two sufficient conditions and implement several pooling strategies to empirically validate our theory.
 
+## Project Overview
 
-## Usages
+This implementation extends the [BREC framework](https://github.com/GraphPKU/BREC) by incorporating our proposed XP and comparative pooling methods for evaluating the expressive power of GNNs on challenging graph pairs from the BREC dataset.
 
-### File Structure
+**Newly added components**:
 
-We first introduce the general file structure of BREC:
-
-```bash
-├── Data
-    └── raw
-        └── brec_v3.npy    # unprocessed BREC dataset in graph6 format
-├── BRECDataset_v3.py    # BREC dataset construction file
-├── test_BREC.py    # Evaluation framework file
-└── test_BREC_search.py    # Run test_BREC.py with 10 seeds for the final result
+```
+Pooling/
+├── run.sh                       # Script to run the experiments
+├── test_BREC.py                 # Evaluation pipeline for BREC dataset
+├── BRECDataset_v3.py            # Updated wrapper for BREC v3 dataset
+├── Data/                        # Include the dataset here
+└── pooling/                     # Pooling methods and model implementations
+    ├── XPooling.py              # XP: our proposed minimal expressivity-increasing pooling
+    ├── cliquepooling.py         # Clique-based pooling (CliquePool)
+    ├── ClusterPooling.py        # Edge score threshold-based pooling (ClusterPool)
+    ├── curvpooling.py           # Curvature-based pooling (CurvPool)
+    └── model.py                 # GNN model composition and pooling integration
 ```
 
-To test on BREC, there are four steps to follow:
+## Installation
 
-1. Select a model and go to the corresponding [directory](#directory).
-2. [Prepare](#preparation) dataset based on selected model requirements.
-3. Check *test_BREC.py* for implementation if you want to test your own GNN.
-4. Run *test_BREC_search.py* for final result. Only if no failure in reliability check for all seeds is available.
+1. Clone this repository:
+   ```bash
+   git clone https://github.com/aliicee3/brec-pooling
+   cd brec-pooling
+   ```
 
-### Requirements
+2. Follow the [BREC framework instructions](https://github.com/GraphPKU/BREC) to install dependencies and download the dataset.
 
-Tested combination: Python 3.8.13 + [PyTorch 1.13.1](https://pytorch.org/get-started/previous-versions/) + [PyTorch_Geometric 2.2](https://pytorch-geometric.readthedocs.io/en/latest/notes/installation.html)
+3. Make sure the `BREC_v3` dataset is available in the expected location (Pooling/Data/raw/).
 
-Other required Python libraries included: numpy, networkx, loguru, etc.
+## Running Experiments
 
-For reproducing other results, please refer to the corresponding requirements for additional libraries.
+You can reproduce the results from our paper with:
 
-### <span id="preparation">Data Preparation</span>
+```bash
+bash run.sh
+```
 
-Data preparation requires two steps: generate the dataset and arrange it in the correct position.
+Or run experiments manually using:
 
-#### Step 1: Data Generation
+```bash
+python test_BREC.py --POOLING={none,xp,edge_pool,topk,sag,asa,diff_pool,cluster,clique,curv} --dataset=BREC_v3
+```
 
-We provide zipped data file *BREC_data_all.zip*. You can unzip it for 3 data files in npy format. You can also customize dataset refering to [Customize Dataset](#customize).
+The `--POOLING` option selects the pooling strategy.
 
-For most methods, only *brec_v3.npy* is needed. More detailed requirements on datasets can refer to corresponding implementations.
+## Implemented Pooling Methods
 
-#### Step 2: Data Arrangement
+We provide and compare the following pooling operators:
 
-Replace *$.txt* with *$.npy* in the corresponding *Data/raw* directory.
-For most methods, only *brec_v3.txt* is in *Data/raw* directory. Thus replacing *brec_v3.txt* with *brec_v3.npy* is enough.
+- `xp`: Our proposed minimal and expressive pooling operator
+- `edge_pool`: Iterative edge contraction based on edge scores
+- `cluster`: Connected components based on edge score thresholds
+- `clique`: Maximal clique pooling (computationally expensive)
+- `curv`: Graph curvature-based pooling
+- Baselines: `topk`, `sag`, `asa`, `diff_pool`, and `none`
 
-### <span id="directory">Reproduce Baselines</span>
+See Section 5 of the [paper](https://openreview.net/forum?id=xGADInGWMt) for theoretical background and discussion.
 
-For baseline results reproduction, please refer to the respective directories:
+## Evaluation on BREC
+
+We evaluate all pooling methods on the [BREC dataset](https://github.com/GraphPKU/BREC), which consists of challenging pairs of **WL-indistinguishable but non-isomorphic graphs**. We report the number of such pairs each method successfully distinguishes — this serves as a measure of the method's **empirical expressivity**.
+
+## Citation
+
+If you use this code or find our work helpful, please cite:
+
+```bibtex
+@article{lachi2025expressive,
+  title={Expressive Pooling for Graph Neural Networks},
+  author={Lachi, Veronica and Moallemy-Oureh, Alice and Roth, Andreas and Welke, Pascal},
+  journal={Transactions on Machine Learning Research},
+  year={2025},
+  url={https://openreview.net/forum?id=xGADInGWMt}
+}
+```
+
+## Contact
+
+For questions or issues, please contact the authors via their institutional emails (see paper) or open an issue on this GitHub repository.
+
+
+## Baselines
+
+See the [BREC github repository](https://github.com/GraphPKU/BREC) for more details on baseline results reproduction. We include a clone of the respective directories for the architectures in the forked repository:
 
 | Baseline          | Directory                           |
 | ----------------- | ----------------------------------- |
@@ -80,78 +117,3 @@ For baseline results reproduction, please refer to the respective directories:
 | Non-GNN Baselines | Non-GNN                             |
 | Your Own GNN      | Base                                |
 
-### Test Your Own GNN
-
-In addition to previous steps in reproducing baselines, implementing *test_BREC.py* is needed.
-
-#### Evaluation Step
-
-To test your GNNs, in addition to previous steps, you need to implement *test_BREC.py* with your model and run (${configs} represents corresponding config usage):
-
-```bash
-python test_BREC.py ${configs}
-```
-
-*test.py* is the pipeline for evaluation, including four stages:
-
-```bash
-1. pre-calculation;
-
-2. dataset construction;
-
-3. model construction;
-
-4. evaluation
-```
-
-**Pre-calculation** aims to organize offline operations on graphs.
-
-**Dataset construction** aims to process the dataset with specific operations. BRECDataset is implemented based on InMemoryDataset. It is recommended to use transform and pre_transform to transform the graphs.
-
-**Model construction** aims to construct the GNN.
-
-**Evaluation** implements RPC. With the model and dataset, it will produce the final results.
-
-Suppose your own experiment is done by running *python main.py*. You can easily implement *test_BREC.py* with *main.py*. You can drop the training and testing pipeline in *main.py* and split the rest into corresponding stages in *test.py*.
-
-### <span id="customize">Customize BREC Dataset</span>
-
-Some graphs in BREC may be too difficult for some models, like strongly regular graphs that 3-WL can not distinguish.
-You can discard some graphs from BREC to reduce test time.
-In addition, the parameter $q$ in RPC can also be adjusted when customizing. Only the *customize* directory is required.
-
-```bash
-├── Data     # Original graph file
-    └── raw
-        ├── basic.npy  # Basic graphs
-        ├── regular.npy  # Simple regular graphs
-        ├── str.npy   # Strongly regular graphs
-        ├── cfi.npy   # CFI graphs
-        ├── extension.npy # Extension graphs
-        ├── 4vtx.npy  # 4-vertex condition graphs
-        └── dr.npy   # Distance regular graphs
-├── dataset_v3.py    # Generating brec_v3.npy 
-├── dataset_v3_3wl.py # Generating brec_v3_3wl.npy    
-└── dataset_v3_no4v_60cfi.py  # Generating brec_v3_no4v_60cfi.npy
-```
-
-Using *brec_v3.npy* by running *python dataset_v3.py* is enough for most methods.
-
-For customization, suppose you want to discard distance regular graphs from BREC. You need to delete *dr.npy* related codes in *dataset_v3.py*. The total pair number and the "category-id_range" dictionary should also be adjusted.
-
-"NUM" represent $q$ in RPC, which can be adjusted for a different RPC check.
-
-### Results Demonstration
-
-The 400 pairs of graphs are from four categories: Basic, Regular, Extension, CFI. We further split 4-vertex condition and distance regular graphs from Regular as a separate category. The "category-id_range" dictionary is as follows:
-
-```python
-  "Basic": (0, 60),
-  "Regular": (60, 160),
-  "Extension": (160, 260),
-  "CFI": (260, 360),
-  "4-Vertex_Condition": (360, 380),
-  "Distance_Regular": (380, 400),
-```
-
-You can refer to the detailed graph in *customize/Data/raw* for analysis.

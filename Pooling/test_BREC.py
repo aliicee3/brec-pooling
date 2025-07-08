@@ -337,7 +337,7 @@ def evaluation(dataset, model, path, device, args):
 
 
 def main():
-    scores, basic_scores, regular_scores, ext_scores, cfi_scores = [], [], [], [], []
+    scores, basic_scores, regular_scores, ext_scores, cfi_scores, runtimes = [], [], [], [], [], []
     for i in range(10):
         start = time.time()
         args.SEED = i
@@ -369,11 +369,13 @@ def main():
         regular_scores.append(regular_score)
         ext_scores.append(ext_score)
         cfi_scores.append(cfi_score)
+        time_for_run = time.time() - start
+        runtimes.append(time_for_run)
         # Log average scores and standard deviations
         logger.add(f"{path}/final.txt", format="{message}", encoding="utf-8")
-        logger.info(f'Time for run {i}: {time.time() - start:.2f} seconds')
+        logger.info(f'Time for run {i}: {time_for_run:.2f} seconds')
     logger.info(
-        f'Final max results: {np.max(basic_scores)+np.max(regular_scores)+np.max(ext_scores)+np.max(cfi_scores)}, {np.max(basic_scores)}, {np.max(regular_scores)}, {np.max(ext_scores)}, {np.max(cfi_scores)}')
+        f'Final max results: {np.max(basic_scores)+np.max(regular_scores)+np.max(ext_scores)+np.max(cfi_scores)}, {np.max(basic_scores)}, {np.max(regular_scores)}, {np.max(ext_scores)}, {np.max(cfi_scores)} - Avg runtime: {np.mean(runtimes)}+-{np.std(runtimes)}')
 
 
 if __name__ == "__main__":

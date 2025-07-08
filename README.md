@@ -30,13 +30,17 @@ Pooling/
 
 ## Installation
 
+
 1. Clone this repository:
    ```bash
    git clone https://github.com/aliicee3/brec-pooling
    cd brec-pooling
    ```
 
-2. To install dependencies, as of July 2025, you can (e.g. for cuda 11.7)
+2. We provide a [`requirements.txt`](requirements.txt) file that should allow you to recreate an environment where this code runs.
+Please adjust the package channels on top of this file to fit your cuda version. Currently, the file installs cpu-only torch dependencies. 
+
+To install dependencies manually, as of July 2025, you can (e.g. for cuda 11.7)
 ```bash
 pip install torch==1.13.1+cu117 torchvision==0.14.1+cu117 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu117
 pip install torch_geometric==2.4

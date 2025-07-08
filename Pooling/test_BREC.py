@@ -339,6 +339,8 @@ def evaluation(dataset, model, path, device, args):
 def main():
     scores, basic_scores, regular_scores, ext_scores, cfi_scores = [], [], [], [], []
     for i in range(10):
+        start = time.time()
+        args.SEED = i
         torch_geometric.seed_everything(i)
         torch.backends.cudnn.deterministic = True
 
@@ -369,6 +371,7 @@ def main():
         cfi_scores.append(cfi_score)
         # Log average scores and standard deviations
         logger.add(f"{path}/final.txt", format="{message}", encoding="utf-8")
+        loggier.info(f'Time for run {i}: {(time.time()-start)%60}')
     logger.info(
         f'Final max results: {np.max(basic_scores)+np.max(regular_scores)+np.max(ext_scores)+np.max(cfi_scores)}, {np.max(basic_scores)}, {np.max(regular_scores)}, {np.max(ext_scores)}, {np.max(cfi_scores)}')
 

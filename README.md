@@ -36,23 +36,21 @@ Pooling/
    cd brec-pooling
    ```
 
-2. Follow the [BREC framework instructions](https://github.com/GraphPKU/BREC) to install dependencies and download the dataset.
-
-As of July 2025, this can be done via 
+2. To install dependencies, as of July 2025, you can (e.g. for cuda 11.7)
 ```bash
-conda install pytorch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 -c pytorch
-pip install torch_geometric==2.2
+pip install torch==1.13.1+cu117 torchvision==0.14.1+cu117 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu117
+pip install torch_geometric==2.4
 pip install pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-1.13.1.html
-pip install loguru
+pip install loguru networkx
 ```
 
 or (cpu only)
 
 ```bash
-conda install pytorch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 cpuonly -c pytorch
-pip install torch_geometric==2.2
+pip install torch==1.13.1+cpu torchvision==0.14.1+cpu torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cpu
+pip install torch_geometric==2.4
 pip install pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-1.13.1+cpu.html
-pip install loguru
+pip install loguru networkx
 ```
 
 3. Make sure the `BREC_v3` dataset is available in the expected location (Pooling/Data/raw/).
